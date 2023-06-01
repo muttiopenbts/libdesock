@@ -14,7 +14,7 @@
 
 const struct sockaddr_in stub_sockaddr_in = {
     .sin_family = AF_INET,
-    .sin_port = 53764,
+    .sin_port = 53764, // 53764 = 1234, 45824 = 179
     .sin_addr.s_addr = 0x100007f
 };
 
@@ -26,6 +26,16 @@ const struct sockaddr_in6 stub_sockaddr_in6 = {
     .sin6_scope_id = 0
 };
 
+int get_desocks(void) {
+    for (size_t i = 0; i < sizeof(fd_table); i++)
+    {
+        if (fd_table[i].desock) {
+            DEBUG_LOG ("[%d] desock::get_desocks fd:%d, desock:%d\n", gettid (), i, fd_table[i].desock);
+        }
+    }
+    
+}
+
 /* Given an fd that is being desocketed fill the given sockaddress structure
    with the right sockaddr stub from above.
  */
@@ -36,6 +46,7 @@ void fill_sockaddr (int fd, struct sockaddr* addr, socklen_t * addr_len) {
                 struct sockaddr_in* ptr = (struct sockaddr_in *) addr;
                 ptr->sin_family = AF_INET;
                 if (*addr_len >= sizeof (struct sockaddr_in)) {
+                    // TODO: Maybe set port to original fd port
                     ptr->sin_port = stub_sockaddr_in.sin_port;
                     ptr->sin_addr = stub_sockaddr_in.sin_addr;
                     *addr_len = sizeof (struct sockaddr_in);

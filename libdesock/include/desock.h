@@ -20,7 +20,7 @@
 If conns >= MAX_CONNS accept() will block
 */
 #ifndef MAX_CONNS
-#define MAX_CONNS 1
+#define MAX_CONNS 1000
 #endif
 
 extern sem_t sem;
@@ -36,6 +36,9 @@ void fill_sockaddr (int, struct sockaddr*, socklen_t*);
 void _error (char*, ...);
 
 struct fd_entry {
+    /* Optional port number for network sockets */
+    unsigned int port;
+
     /* information passed to socket() */
     int domain;
     

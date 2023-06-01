@@ -12,6 +12,12 @@ visible int socket (int domain, int type, int protocol) {
     DEBUG_LOG ("[%d] desock::socket(%d, %d, %d)", gettid (), domain, type, protocol);
 
     int s = __socketcall (socket, domain, type, protocol, 0, 0, 0);
+    // DEBUG_LOG ("[%d] desock::socket(%d, %d, %d), returned %d", gettid (), domain, type, protocol, s);
+
+    if (DESOCK_FD (s)) {
+        DEBUG_LOG ("[%d] desock::socket(%d, %d, %d), Desock:%d.", gettid (), domain, type, protocol, s);
+    }
+
     if ((s == -EINVAL || s == -EPROTONOSUPPORT)
         && (type & (SOCK_CLOEXEC | SOCK_NONBLOCK))) {
         s = __socketcall (socket, domain, type & ~(SOCK_CLOEXEC | SOCK_NONBLOCK), protocol, 0, 0, 0);
@@ -26,6 +32,7 @@ visible int socket (int domain, int type, int protocol) {
     if (s > -1 && VALID_FD (s)) {
         clear_fd_table_entry (s);
         fd_table[s].domain = domain;
+
         if (s + 1 > max_fd) {
             max_fd = s + 1;
         }
