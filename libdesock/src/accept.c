@@ -24,7 +24,30 @@ get_random(int* num,int lower, int upper)
 {
     srand(time(0));
     *num = (rand() % (upper - lower + 1)) + lower;
-    DEBUG_LOG ("get_random = %d\n", *num);
+    DEBUG_LOG (" get_random = %d\n", *num);
+}
+
+int
+get_next_fd_incr(int fd) {
+    // Is this the base case when max_fd doesn't have initial value?
+    // Ensure that we don't return a fd that conflicts with std(in|out|err)
+    if (max_fd < 2) {
+        max_fd = 3;
+        DEBUG_LOG(" get_next_fd_incr cond1 max_fd = %d\n", max_fd);
+    }
+
+    // Increment global file descriptor value and return this new value.
+    if (fd > max_fd) {
+        max_fd = fd + 1;
+        DEBUG_LOG(" get_next_fd_incr cond2 max_fd = %d\n", max_fd);
+    }
+    else {
+        max_fd += 1;
+    }
+    
+
+    DEBUG_LOG(" get_next_fd_incr = %d return\n", max_fd);
+    return max_fd;
 }
 
 static int internal_accept (int fd, struct sockaddr* restrict addr, socklen_t * restrict len, int flag) {
@@ -69,7 +92,7 @@ static int internal_accept (int fd, struct sockaddr* restrict addr, socklen_t * 
         int fs_fd = open(filename, O_RDWR | O_CREAT | O_TRUNC, 0644);
         //int new_fd = syscall (SYS_dup, fs_fd);
         int new_fd = 0;
-        get_random(&new_fd, max_fd, FD_TABLE_SIZE);
+        new_fd = get_next_fd_incr(new_fd);
         // int new_fd = fs_fd;
 
         if (fs_fd == -1) {
@@ -99,9 +122,9 @@ static int internal_accept (int fd, struct sockaddr* restrict addr, socklen_t * 
         // TODO: verify if socket stub needs changing.
         fill_sockaddr (fd, addr, len);
 
-        if (new_fd + 1 > max_fd) {
-            max_fd = new_fd + 1;
-        }
+        //if (new_fd + 1 > max_fd) {
+        //    max_fd = new_fd + 1;
+        //}
 
         DEBUG_LOG (" new_fd: %d\n", new_fd);
         return new_fd;
