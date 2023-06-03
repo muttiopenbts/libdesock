@@ -13,6 +13,7 @@
 #include "desock.h"
 
 const struct sockaddr_in stub_sockaddr_in = {
+    // TODO: make configurable at runtime or build
     .sin_family = AF_INET,
     .sin_port = 53764, // 53764 = 1234, 45824 = 179
     .sin_addr.s_addr = 0x100007f
@@ -49,7 +50,10 @@ void fill_sockaddr (int fd, struct sockaddr* addr, socklen_t * addr_len) {
                     // TODO: Maybe set port to original fd port
                     ptr->sin_port = stub_sockaddr_in.sin_port;
                     ptr->sin_addr = stub_sockaddr_in.sin_addr;
-                    *addr_len = sizeof (struct sockaddr_in);
+
+                    //ptr->sin_addr.s_addr = 0x100007f;
+
+                    *addr_len = sizeof(struct sockaddr_in);
                 }
                 break;
             }

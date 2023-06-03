@@ -85,24 +85,24 @@ static int internal_accept (int fd, struct sockaddr* restrict addr, socklen_t * 
         //int new_fd = syscall (SYS_dup, fd);
 
         // Create a file for desocketed server to send network reply msgs.
-        const char* filename = "/tmp/desock-accept-fd.txt";
+        //const char* filename = "/tmp/desock-accept-fd.txt";
 
         // TODO: Race condition if multiple calls to open() on same file. Should check if file already open
         // or find alternative mechanism.
-        int fs_fd = open(filename, O_RDWR | O_CREAT | O_TRUNC, 0644);
+        //int fs_fd = open(filename, O_RDWR | O_CREAT | O_TRUNC, 0644);
         //int new_fd = syscall (SYS_dup, fs_fd);
         int new_fd = 0;
         new_fd = get_next_fd_incr(new_fd);
         // int new_fd = fs_fd;
 
-        if (fs_fd == -1) {
+        //if (fs_fd == -1) {
             // Return if open() on fd failed.
-            perror("open");
-            exit(EXIT_FAILURE);
-        }
+        //    perror("open");
+        //    exit(EXIT_FAILURE);
+        //}
 
-        #define TEST_MSG "THIS IS A TEST FROM LIBDESOCK\n"
-        write(new_fd, TEST_MSG, sizeof(TEST_MSG));
+        //#define TEST_MSG "THIS IS A TEST FROM LIBDESOCK\n"
+        //write(new_fd, TEST_MSG, sizeof(TEST_MSG));
 
         if (new_fd == -1 || !VALID_FD (new_fd)) {
             // Return if dup on fd failed.
