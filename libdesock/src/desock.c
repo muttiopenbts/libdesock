@@ -9,6 +9,9 @@
 #include <netinet/in.h>
 #include <sys/un.h>
 
+#include <arpa/inet.h>
+#include <unistd.h>
+
 #include "syscall.h"
 #include "desock.h"
 
@@ -21,21 +24,11 @@ const struct sockaddr_in stub_sockaddr_in = {
 
 const struct sockaddr_in6 stub_sockaddr_in6 = {
     .sin6_family = AF_INET6,
-    .sin6_port = 53764,
+    .sin6_port = 54020, // 54020 = htons(1235)
     .sin6_flowinfo = 0,
     .sin6_addr.s6_addr = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1},
     .sin6_scope_id = 0
 };
-
-int get_desocks(void) {
-    for (size_t i = 0; i < sizeof(fd_table); i++)
-    {
-        if (fd_table[i].desock) {
-            DEBUG_LOG ("[%d] desock::get_desocks fd:%d, desock:%d\n", gettid (), i, fd_table[i].desock);
-        }
-    }
-    
-}
 
 /* Given an fd that is being desocketed fill the given sockaddress structure
    with the right sockaddr stub from above.
@@ -51,7 +44,7 @@ void fill_sockaddr (int fd, struct sockaddr* addr, socklen_t * addr_len) {
                     ptr->sin_port = stub_sockaddr_in.sin_port;
                     ptr->sin_addr = stub_sockaddr_in.sin_addr;
 
-                    //ptr->sin_addr.s_addr = 0x100007f;
+                    ptr->sin_addr.s_addr = inet_addr("1.1.1.1");
 
                     *addr_len = sizeof(struct sockaddr_in);
                 }

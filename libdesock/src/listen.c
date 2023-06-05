@@ -9,7 +9,7 @@ visible int listen (int fd, int backlog) {
     /* File descriptor entry for desock should have been set during bind().
      */
     if (VALID_FD (fd) && fd_table[fd].desock) {
-        DEBUG_LOG ("[%d] desock::listen(%d, %d) = 0\n", gettid (), fd, backlog);
+        DEBUG_LOG ("[%d] desock::listen(%d, %d) = 0. Desocketed\n", gettid (), fd, backlog);
         fd_table[fd].listening = 1;
         return 0;
     } else {

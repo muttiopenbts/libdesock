@@ -8,12 +8,22 @@
 
 #include <stdlib.h>
 #include <fcntl.h>
-#include <unistd.h>
 
 #include <time.h>
 
 #include "syscall.h"
 #include "desock.h"
+
+
+void
+get_desocks(void) {
+    for (size_t i = 0; i < (sizeof(fd_table) && i < 2000); i++)
+    {
+        if (fd_table[i].desock > 0) {
+            DEBUG_LOG ("[%d] desock::get_desocks fd:%d, desock:%d\n", gettid (), i, fd_table[i].desock);
+        }
+    }
+}
 
 /* Taken from https://www.geeksforgeeks.org/generating-random-number-range-c/
    Generates and prints 'count' random
@@ -62,16 +72,9 @@ static int internal_accept (int fd, struct sockaddr* restrict addr, socklen_t * 
      */
     get_desocks();
 
-    if (len > 0 && addr != NULL) { 
-        struct sockaddr_in *remote_sock = (struct sockaddr_in *)addr;
-//        DEBUG_LOG ("[%d] desock::internal_accept(%d, %p, %p, %d) Remote:%s \n", gettid (), fd, addr, len, flag, inet_ntoa(remote_sock->sin_addr));
-    } else { 
-        /* no peer */ 
-    }
-
     DEBUG_LOG ("[%d] desock::internal_accept(%d, %p, %p, %d)\n", gettid (), fd, addr, len, flag);
 
-    if (VALID_FD(fd) && fd_table[fd].desock)
+    if (VALID_FD(fd) && fd_table[fd].desock && DESOCK_FD_V4(fd))
     {
         DEBUG_LOG ("[%d] desock::internal_accept(%d, %p, %p, %d) Desocketing\n", gettid (), fd, addr, len, flag);
         
@@ -115,7 +118,8 @@ static int internal_accept (int fd, struct sockaddr* restrict addr, socklen_t * 
 //        fd_table[new_fd].domain = fd_table[fd].domain;
 //        fd_table[new_fd].desock = fd_table[fd].desock;
 //        fd_table[new_fd].desock = 1;
-        fd_table[new_fd].domain = 0;
+//        fd_table[new_fd].domain = 0;
+        fd_table[new_fd].domain = fd_table[fd].domain; //TODO: Not sure of impact
         fd_table[new_fd].desock = 1; // This flag ensures that read/write will be redirected from std(in|out)
         fd_table[new_fd].listening = 0;
 
@@ -131,6 +135,7 @@ static int internal_accept (int fd, struct sockaddr* restrict addr, socklen_t * 
     }
     else
     {
+        DEBUG_LOG ("[%d] desock::internal_accept(%d, %p, %p, %d) No desocketing, fam: %d\n", gettid (), fd, addr, len, flag, fd_table[fd].domain);
         return socketcall_cp (accept4, fd, addr, len, flag, 0, 0);
     }
 }

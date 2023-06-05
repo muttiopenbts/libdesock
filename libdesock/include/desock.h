@@ -68,6 +68,9 @@ extern const struct sockaddr_un stub_sockaddr_un;
 
 #define DESOCK_FD(x) (fd_table[(x)].domain == AF_INET || fd_table[(x)].domain == AF_INET6)
 
+// Check if fd is an IPv4 family type
+#define DESOCK_FD_V4(x) (fd_table[(x)].domain == AF_INET)
+
 #ifdef DEBUG
 void clear_fd_table_entry(int);
 #else

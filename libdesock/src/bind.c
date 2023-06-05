@@ -14,7 +14,7 @@ visible int bind (int fd, const struct sockaddr* addr, socklen_t len) {
     struct sockaddr_in *ss = (struct sockaddr_in *)addr;
     DEBUG_LOG("[%d] desock::bind(%d, %p, %d) = 0. Port=%hu.\n", gettid(), fd, addr, len, ntohs(ss->sin_port));
 
-    if (VALID_FD (fd) && DESOCK_FD (fd) && (ntohs(ss->sin_port) == 179)) {
+    if (VALID_FD (fd) && DESOCK_FD (fd) && (ntohs(ss->sin_port) == 179) && DESOCK_FD_V4(fd)) {
         // Only desock TCP BGP
         // TODO: Create lookup function for meeting desock criteria.
 
