@@ -14,13 +14,19 @@
 #include "syscall.h"
 #include "desock.h"
 
+#include <sys/mman.h>
 
+
+/* Purpose is for help in debugging.
+ */
 void
 get_desocks(void) {
-    for (size_t i = 0; i < (sizeof(fd_table) && i < 2000); i++)
+    DEBUG_LOG ("[%d] desock::get_desocks Printing desock fd_table size: %d\n", gettid (), sizeof(fd_table));
+    for (size_t i = 0; i < FD_TABLE_SIZE; i++)
     {
         if (fd_table[i].desock > 0) {
-            DEBUG_LOG ("[%d] desock::get_desocks fd:%d, desock:%d\n", gettid (), i, fd_table[i].desock);
+            DEBUG_LOG ("[%d] desock::get_desocks fd:%d, desock:%d, epfd: %d, listening: %d, notified: %d\n", 
+                gettid (), i, fd_table[i].desock, fd_table[i].epfd, fd_table[i].listening, fd_table[i].notified);
         }
     }
 }
@@ -37,8 +43,27 @@ get_random(int* num,int lower, int upper)
     DEBUG_LOG (" get_random = %d\n", *num);
 }
 
+/* Generate a new fd based on a previous network socket fd.
+ * Increment the globally highest fd.
+ * TODO: Rewrite all of this function to encompass (de|in)crements
+ * @param[1]    fd  File descripter id. Can be any valid fd, but the
+ *              intent is that the fd should have been obtained from a 
+ *              network socket(). In the case of a server, the fd passed
+ *              to listen() 
+ */
 int
 get_next_fd_incr(int fd) {
+    int new_fd = NULL;
+
+    // dup() on socket fd ensures that any getsock() type calls on our fake socket, work correctly.
+    new_fd = syscall (SYS_dup, fd);
+    //new_fd = memfd_create("desock", 0);
+
+    if (new_fd < 0) {
+        perror("dup");
+        exit(EXIT_FAILURE);
+    }
+
     // Is this the base case when max_fd doesn't have initial value?
     // Ensure that we don't return a fd that conflicts with std(in|out|err)
     if (max_fd < 2) {
@@ -47,19 +72,24 @@ get_next_fd_incr(int fd) {
     }
 
     // Increment global file descriptor value and return this new value.
-    if (fd > max_fd) {
-        max_fd = fd + 1;
+    if (new_fd > max_fd) {
+        max_fd = new_fd;
         DEBUG_LOG(" get_next_fd_incr cond2 max_fd = %d\n", max_fd);
     }
     else {
-        max_fd += 1;
+        // Do nothing since last recorded fd is greater than the last generated fd from memfd_create()
     }
     
+    DEBUG_LOG(" get_next_fd_incr %d = dup(%d)\n", new_fd, fd);
 
-    DEBUG_LOG(" get_next_fd_incr = %d return\n", max_fd);
-    return max_fd;
+    DEBUG_LOG(" get_next_fd_incr = %d return\n", new_fd);
+    return new_fd;
 }
 
+/*
+ * @param[in]   fd      Listening socket fd.
+ * @return      new_fd  File descriptor to be used for read/write with remote peer.  
+ */
 static int internal_accept (int fd, struct sockaddr* restrict addr, socklen_t * restrict len, int flag) {
     /*  On success, these system calls return a file descriptor for the accepted socket.
         Non-desock listeners will get real accept() connection fd.
@@ -67,45 +97,29 @@ static int internal_accept (int fd, struct sockaddr* restrict addr, socklen_t * 
         connection has occured yet.
         Desocked accept() will return a fake fd. Caller will call read() and hook will write whatever
         is read from stdin.
-
-        TODO: calling close() on fake fd fails. Need to handle gracefully if fd is fake.
      */
-    get_desocks();
+    DEBUG_LOG ("[%d] desock::internal_accept(%d, %p, %p, %d) fam: %d\n", gettid (), fd, addr, len, flag, fd_table[fd].domain);
 
-    DEBUG_LOG ("[%d] desock::internal_accept(%d, %p, %p, %d)\n", gettid (), fd, addr, len, flag);
+    get_desocks();
 
     if (VALID_FD(fd) && fd_table[fd].desock && DESOCK_FD_V4(fd))
     {
         DEBUG_LOG ("[%d] desock::internal_accept(%d, %p, %p, %d) Desocketing\n", gettid (), fd, addr, len, flag);
-        
+        DEBUG_LOG ("[%d] desock::internal_accept accept_block: %d\n", gettid (), accept_block);
+
         if (accept_block) {
-            sem_wait (&sem);
-        } else {
+            DEBUG_LOG ("[%d] desock::internal_accept going to block until close().\n", gettid ());
+            //sem_wait (&sem);
+            return -1;
+        }
+        else
+        {
+            DEBUG_LOG ("[%d] desock::internal_accept not blocked but setting block flag for next check.\n", gettid ());
             accept_block = 1;
         }
 
-        //int new_fd = syscall (SYS_dup, fd);
-        //int new_fd = syscall (SYS_dup, fd);
-
-        // Create a file for desocketed server to send network reply msgs.
-        //const char* filename = "/tmp/desock-accept-fd.txt";
-
-        // TODO: Race condition if multiple calls to open() on same file. Should check if file already open
-        // or find alternative mechanism.
-        //int fs_fd = open(filename, O_RDWR | O_CREAT | O_TRUNC, 0644);
-        //int new_fd = syscall (SYS_dup, fs_fd);
         int new_fd = 0;
-        new_fd = get_next_fd_incr(new_fd);
-        // int new_fd = fs_fd;
-
-        //if (fs_fd == -1) {
-            // Return if open() on fd failed.
-        //    perror("open");
-        //    exit(EXIT_FAILURE);
-        //}
-
-        //#define TEST_MSG "THIS IS A TEST FROM LIBDESOCK\n"
-        //write(new_fd, TEST_MSG, sizeof(TEST_MSG));
+        new_fd = get_next_fd_incr(fd);
 
         if (new_fd == -1 || !VALID_FD (new_fd)) {
             // Return if dup on fd failed.
@@ -115,22 +129,19 @@ static int internal_accept (int fd, struct sockaddr* restrict addr, socklen_t * 
 
         // Erase any existing fd entry for the duplicate fd, and set members.
         clear_fd_table_entry (new_fd);
-//        fd_table[new_fd].domain = fd_table[fd].domain;
-//        fd_table[new_fd].desock = fd_table[fd].desock;
-//        fd_table[new_fd].desock = 1;
-//        fd_table[new_fd].domain = 0;
-        fd_table[new_fd].domain = fd_table[fd].domain; //TODO: Not sure of impact
+        fd_table[new_fd].domain = fd_table[fd].domain;
         fd_table[new_fd].desock = 1; // This flag ensures that read/write will be redirected from std(in|out)
+
+        // This isn't the listen(), bind() socket fd. This comes into play with epoll_wait() and read() to stdin.
         fd_table[new_fd].listening = 0;
 
         // TODO: verify if socket stub needs changing.
         fill_sockaddr (fd, addr, len);
 
-        //if (new_fd + 1 > max_fd) {
-        //    max_fd = new_fd + 1;
-        //}
-
         DEBUG_LOG (" new_fd: %d\n", new_fd);
+
+        accept_on_socket(new_fd, fd);
+
         return new_fd;
     }
     else
@@ -141,7 +152,13 @@ static int internal_accept (int fd, struct sockaddr* restrict addr, socklen_t * 
 }
 
 visible int accept (int fd, struct sockaddr* restrict addr, socklen_t * restrict len) {
-    return internal_accept (fd, addr, len, 0);
+    int new_fd;
+
+    DEBUG_LOG("[%d] desock::accept(%d, %p, %d).\n", gettid(), fd, addr, len);
+
+    new_fd = internal_accept(fd, addr, len, 0);
+
+    return new_fd;
 }
 
 visible int accept4 (int fd, struct sockaddr* restrict addr, socklen_t * restrict len, int flg) {

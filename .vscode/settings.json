@@ -12,7 +12,9 @@
         "utility": "c",
         "stdio.h": "c",
         "errno.h": "c",
-        "socket.h": "c"
+        "socket.h": "c",
+        "exception": "c",
+        "cerrno": "c"
     },
     "C_Cpp.dimInactiveRegions": false
 }

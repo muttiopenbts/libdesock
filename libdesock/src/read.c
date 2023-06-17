@@ -11,37 +11,47 @@
 #include "peekbuffer.h"
 #include "hooks.h"
 
-static long internal_readv (struct iovec* iov, int len, int* full, int peek, int offset) {
-    int read_in = 0;
+
+#include <stdio.h>
+#include <sys/mman.h>
+#include <fcntl.h>
+
+static long internal_readv (struct iovec* iov, int iov_count, int* full, int peek, int offset) {
+    DEBUG_LOG ("[%d] desock::internal_readv iov: %p, iov_count: %d.\n", gettid (), iov, iov_count);
+    int read_total = 0;
 
     if (full) {
         *full = 1;
     }
 
-    for (int i = 0; i < len; ++i) {
-        int r = 0;
+    // Cycle through every iov buffer
+    for (int i = 0; i < iov_count; ++i) {
+        int read_num = 0;
 
         if (peek) {
-            r = peekbuffer_cp (iov[i].iov_base, iov[i].iov_len, offset);
-            offset += r;
+            read_num = peekbuffer_cp (iov[i].iov_base, iov[i].iov_len, offset);
+            offset += read_num;
         } else {
             if (peekbuffer_size () > 0) {
-                r = peekbuffer_mv (iov[i].iov_base, iov[i].iov_len);
+                read_num = peekbuffer_mv (iov[i].iov_base, iov[i].iov_len);
             }
 
-            if (r < iov[i].iov_len) {
+            if (read_num < iov[i].iov_len) {
                 errno = 0;
-                r += hook_input((char *) iov[i].iov_base + r, iov[i].iov_len - r);
+                read_num += hook_input((char *) iov[i].iov_base + read_num, iov[i].iov_len - read_num);
+
+                DEBUG_LOG ("[%d] desock::internal_readv i: %d, read_num: %d\n", gettid (), i, read_num);
 
                 if (errno) {
+                    DEBUG_LOG ("[%d] desock::internal_readv returning errno: %d\n", gettid (), errno);
                     return -1;
                 }
             }
         }
 
-        read_in += r;
+        read_total += read_num;
 
-        if (r < iov[i].iov_len) {
+        if (read_num < iov[i].iov_len) {
             if (full) {
                 *full = 0;
             }
@@ -50,12 +60,21 @@ static long internal_readv (struct iovec* iov, int len, int* full, int peek, int
         }
     }
 
-    return read_in;
+    DEBUG_LOG ("[%d] desock::internal_readv read_total: %d\n", gettid (), read_total);
+    return read_total;
 }
 
+/* Calling read() and expecting to get data from stdin requires piping your data to the process.
+    e.g. # clear; echo -e 'MYFUZZEDDATA' |LD_PRELOAD=libdesock.so ./echo_server-epoll 179
+ */
 visible ssize_t read (int fd, void* buf, size_t count) {
+    DEBUG_LOG ("[%d] desock::read(%d, %p, %lu)\n", gettid (), fd, buf, count);
+
+    /* TODO: Disable reading from certain file descriptors that can interfere with tests. e.g. stdin.
+     * Make this user configurable.
+     */ 
     if (VALID_FD (fd) && fd_table[fd].desock) {
-        DEBUG_LOG ("[%d] desock::read(%d, %p, %lu)", gettid (), fd, buf, count);
+        DEBUG_LOG ("[%d] desock::read(%d, %p, %lu) Desock\n", gettid (), fd, buf, count);
 
         int offset = 0;
 
@@ -63,19 +82,33 @@ visible ssize_t read (int fd, void* buf, size_t count) {
             offset = peekbuffer_mv (buf, count);
         }
 
+        DEBUG_LOG ("[%d] desock::read offset: %d\n", gettid (), offset);
+
         if (offset < count) {
             errno = 0;
             offset += hook_input((char *) buf + offset, count - offset);
+
+            DEBUG_LOG(" buf: %s\n", buf);
+            DEBUG_LOG ("[%d] desock::read Desock hook_input offset: %d, errno: %d\n", gettid (), offset, errno);
 
             if (errno) {
                 DEBUG_LOG (" = -1\n");
                 return -1;
             }
         }
-
-        DEBUG_LOG (" offset: %d\n", offset);
+#ifdef DEBUG
+        sleep(2);
+#endif
+        DEBUG_LOG(" offset: %d\n", offset);
         return offset;
-    } else {
+    } 
+    else if (fd == STDIN_FILENO) { // TODO: Make this user configurable.
+        DEBUG_LOG ("[%d] desock::read matched fd: %d Desocked\n", gettid (), fd);
+        return 0;
+    }
+    else
+    {
+        DEBUG_LOG ("[%d] desock::read(%d, %p, %lu) No desock\n", gettid (), fd, buf, count);
         return syscall_cp (SYS_read, fd, buf, count);
     }
 }
@@ -118,6 +151,7 @@ visible ssize_t recvfrom (int fd, void* buf, size_t len, int flags, struct socka
         DEBUG_LOG (" = %d\n", r);
         return r;
     } else {
+        DEBUG_LOG ("[%d] desock::recvfrom(%d, %p, %lu, %d, %p, %p)", gettid (), fd, buf, len, flags, addr, alen);
         return socketcall_cp (recvfrom, fd, buf, len, flags, addr, alen);
     }
 }
@@ -128,6 +162,7 @@ visible ssize_t recv (int fd, void* buf, size_t len, int flags) {
         DEBUG_LOG ("[%d] desock::recv(%d, %p, %lu, %d) = %d\n", gettid (), fd, buf, len, flags, r);
         return r;
     } else {
+        DEBUG_LOG ("[%d] desock::recv(%d, %p, %lu, %d)\n", gettid (), fd, buf, len, flags);
         return socketcall_cp (recvfrom, fd, buf, len, flags, NULL, NULL);
     }
 }
@@ -159,6 +194,7 @@ visible ssize_t recvmsg (int fd, struct msghdr* msg, int flags) {
         DEBUG_LOG (" = %d\n", r);
         return r;
     } else {
+        DEBUG_LOG ("[%d] desock::recvmsg(%d, %p, %d)", gettid (), fd, msg, flags);
         return socketcall_cp (recvmsg, fd, msg, flags, 0, 0, 0);
     }
 }
@@ -212,16 +248,22 @@ visible int recvmmsg (int fd, struct mmsghdr* msgvec, unsigned int vlen, int fla
         DEBUG_LOG (" = %d\n", r);
         return r;
     } else {
+        DEBUG_LOG ("[%d] desock::recvmmsg(%d, %p, %d, %d, %p)", gettid (), fd, msgvec, vlen, flags, timeout);
         return syscall_cp (SYS_recvmmsg, fd, msgvec, vlen, flags, timeout);
     }
 }
 
+/* @return  Number of bytes read or negative number for error.
+ */
 visible ssize_t readv (int fd, struct iovec* iov, int count) {
+    DEBUG_LOG ("[%d] desock::readv(%d, %p, %d)\n", gettid (), fd, iov, count);
+
     if (VALID_FD (fd) && fd_table[fd].desock) {
-        int r = internal_readv (iov, count, NULL, 0, 0);
-        DEBUG_LOG ("[%d] desock::readv(%d, %p, %d) = %d\n", gettid (), fd, iov, count, r);
-        return r;
+        int read = internal_readv (iov, count, NULL, 0, 0);
+        DEBUG_LOG ("[%d] desock::readv(%d, %p, %d) = %d Desocked\n", gettid (), fd, iov, count, read);
+        return read;
     } else {
+        DEBUG_LOG ("[%d] desock::readv(%d, %p, %d)\n", gettid (), fd, iov, count);
         return syscall_cp (SYS_readv, fd, iov, count);
     }
 }

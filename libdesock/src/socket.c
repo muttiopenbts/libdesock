@@ -12,14 +12,14 @@ visible int socket (int domain, int type, int protocol) {
     DEBUG_LOG ("[%d] desock::socket(%d, %d, %d)", gettid (), domain, type, protocol);
 
     int s = __socketcall (socket, domain, type, protocol, 0, 0, 0);
-    // DEBUG_LOG ("[%d] desock::socket(%d, %d, %d), returned %d", gettid (), domain, type, protocol, s);
 
-    if (DESOCK_FD (s)) {
-        DEBUG_LOG ("[%d] desock::socket(%d, %d, %d), Desock:%d.", gettid (), domain, type, protocol, s);
+    if (DESOCK_DOMAIN_v4 (domain)) {
+        DEBUG_LOG (" [%d] desock::socket(%d, %d, %d), Match. %d.", gettid (), domain, type, protocol, s);
     }
 
     if ((s == -EINVAL || s == -EPROTONOSUPPORT)
         && (type & (SOCK_CLOEXEC | SOCK_NONBLOCK))) {
+        DEBUG_LOG (" [%d] desock::socket Test type condition met.", gettid (), domain, type, protocol);
         s = __socketcall (socket, domain, type & ~(SOCK_CLOEXEC | SOCK_NONBLOCK), protocol, 0, 0, 0);
         if (s < 0)
             return __syscall_ret (s);

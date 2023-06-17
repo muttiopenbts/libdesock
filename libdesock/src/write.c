@@ -9,6 +9,7 @@
 #include "hooks.h"
 
 static long internal_writev (const struct iovec* iov, int len) {
+    DEBUG_LOG ("[%d] desock::internal_writev.\n", gettid ());
     int written = 0;
 
     for (int i = 0; i < len; ++i) {
@@ -30,11 +31,14 @@ static long internal_writev (const struct iovec* iov, int len) {
 }
 
 visible ssize_t write (int fd, const void* buf, size_t count) {
+    DEBUG_LOG ("[%d] desock::write(%d, %p, %lu).\n", gettid (), fd, buf, count);
+    
     if (VALID_FD (fd) && fd_table[fd].desock) {
         int r = hook_output(buf, count);
-        DEBUG_LOG ("[%d] desock::write(%d, %p, %lu) = %d\n", gettid (), fd, buf, count, r);
+        DEBUG_LOG ("[%d] desock::write(%d, %p, %lu) = %d. Desock\n", gettid (), fd, buf, count, r);
         return r;
     } else {
+        DEBUG_LOG ("[%d] desock::write(%d, %p, %lu)\n", gettid (), fd, buf, count);
         return syscall_cp (SYS_write, fd, buf, count);
     }
 }
@@ -93,9 +97,11 @@ visible int sendmmsg (int fd, struct mmsghdr* msgvec, unsigned int vlen, int fla
 }
 
 visible ssize_t writev (int fd, const struct iovec* iov, int count) {
+    DEBUG_LOG ("[%d] desock::writev fd: %d", gettid (), fd);
+
     if (VALID_FD (fd) && fd_table[fd].desock) {
         int r = internal_writev (iov, count);
-        DEBUG_LOG ("[%d] desock::writev(%d, %p, %d) = %d\n", gettid (), fd, iov, count, r);
+        DEBUG_LOG ("[%d] desock::writev(%d, %p, %d) = %d. Desocked\n", gettid (), fd, iov, count, r);
         return r;
     } else {
         return syscall_cp (SYS_writev, fd, iov, count);

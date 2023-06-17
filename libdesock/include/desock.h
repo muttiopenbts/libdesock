@@ -20,10 +20,17 @@
 If conns >= MAX_CONNS accept() will block
 */
 #ifndef MAX_CONNS
-#define MAX_CONNS 1000
+#define MAX_CONNS 1
 #endif
 
+/* e.g. "111.111.111.111"
+ * Doesn't include string terminating null
+ */
+#define MAX_IPV4_LEN 15
+
 extern sem_t sem;
+extern unsigned int desock_port;
+extern char desock_localipv4[MAX_IPV4_LEN + 1];
 
 #ifdef DEBUG
 void _debug (char*, ...);
@@ -34,6 +41,7 @@ void _debug (char*, ...);
 
 void fill_sockaddr (int, struct sockaddr*, socklen_t*);
 void _error (char*, ...);
+unsigned int is_valid_ip_address(char *);
 
 struct fd_entry {
     /* Optional port number for network sockets */
@@ -51,6 +59,9 @@ struct fd_entry {
     /* epoll stuff */
     int epfd;
     struct epoll_event ep_event;
+    struct epoll_event *ptr_ev;
+
+    int notified; // Track whether we have notified caller via epoll_wait()
 };
 
 #ifndef FD_TABLE_SIZE
@@ -68,6 +79,10 @@ extern const struct sockaddr_un stub_sockaddr_un;
 
 #define DESOCK_FD(x) (fd_table[(x)].domain == AF_INET || fd_table[(x)].domain == AF_INET6)
 
+#define DESOCK_DOMAIN(x) (x == AF_INET || domain == AF_INET6)
+
+#define DESOCK_DOMAIN_v4(x) (x == AF_INET)
+
 // Check if fd is an IPv4 family type
 #define DESOCK_FD_V4(x) (fd_table[(x)].domain == AF_INET)
 
@@ -78,6 +93,7 @@ inline void clear_fd_table_entry (int idx) {
     fd_table[idx].epfd = -1;
     fd_table[idx].desock = 0;
     fd_table[idx].listening = 0;
+    fd_table[idx].notified = 0;
 }
 #endif
 
@@ -86,3 +102,5 @@ inline void clear_fd_table_entry (int idx) {
 #define visible __attribute__ ((visibility ("default")))
 
 #endif /* DESOCK_H */
+
+void accept_on_socket(int afd, int sfd);

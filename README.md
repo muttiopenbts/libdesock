@@ -11,6 +11,9 @@ This has the advantage of
 
 For an in-depth explanation of de-socketing see our [blog post](https://lolcads.github.io/posts/2022/02/libdesock/).
 
+## Caveat
+This version has been modified to fit a specific need to have desocking capabilites on user selected socket attributes like domain type, and port number. 
+This code needs unittests and to be merged back to original project.
 ## Building
 Libdesock uses `meson` and `ninja` as its build system.
 
@@ -48,6 +51,7 @@ meson compile
 This creates a shared library `./build/libdesock.so` and a static library `./build/libdesock.a`.
 
 ## Usage
+*Required  
 Prepend
 ```sh
 LD_PRELOAD=libdesock.so
@@ -57,7 +61,21 @@ set the environment variable
 ```sh
 AFL_PRELOAD=libdesock.so
 ```
-when using AFL++.
+when using AFL++.  
+
+The target process may have several listening ports. Specify the individual server port to desock and ignore the rest.
+Specify the interest port using the environment variable 
+```sh
+export desock_port=666
+```
+Specify the v4 IP address to be associated with the server's socket.
+```sh
+export DESOCK_LOCALIPV4=127.0.0.1
+```
+Example test run
+```sh
+echo -e 'MYFUZZEDDATA' | DESOCK_PORT=666 DESOCK_LOCALIPV4=127.0.0.1 LD_PRELOAD=libdesock.so ./test-server 666
+```
 
 ## Examples
 If you are using libdesock and AFL for fuzzing, the programs under test

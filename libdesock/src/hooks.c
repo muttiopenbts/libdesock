@@ -9,14 +9,19 @@
  * corresponding error.
  */
 
+#include <unistd.h>
 #include "hooks.h"
 #include "syscall.h"
+#include <stdio.h>
+#include "desock.h"
+#include <fcntl.h>
  
 /* This function is called whenever a read on a network
  * connection occurs. Read from stdin instead.
  */
 ssize_t hook_input (char* buf, size_t size) {
-    return syscall_cp(SYS_read, 0, buf, size);
+    DEBUG_LOG ("[%d] desock::hook_input(%p, %d)", gettid (), buf, size);
+    return syscall_cp(SYS_read, STDIN_FILENO, buf, size);
 }
 
 /* This function is called whenever a write on a network
@@ -24,8 +29,10 @@ ssize_t hook_input (char* buf, size_t size) {
  */
 ssize_t hook_output (char* buf, size_t size) {
 #ifdef DEBUG
-    return syscall_cp(SYS_write, 1, buf, size);
+    DEBUG_LOG ("[%d] desock::hook_output(%p, %d) DEBUG write to STDOUT_FILENO\n", gettid (), buf, size);
+    return syscall_cp(SYS_write, STDOUT_FILENO, buf, size);
 #else
+    DEBUG_LOG ("[%d] desock::hook_output(%p, %d) No DEBUG. Nothing written to an fd.\n", gettid (), buf, size);
     return (ssize_t) size;
 #endif
 }

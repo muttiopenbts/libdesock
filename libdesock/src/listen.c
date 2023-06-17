@@ -5,6 +5,10 @@
 #include "syscall.h"
 #include "desock.h"
 
+
+/*
+ * @param   fd  File descriptor refers to a socket() -> bind(). 
+ */
 visible int listen (int fd, int backlog) {
     /* File descriptor entry for desock should have been set during bind().
      */
