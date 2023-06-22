@@ -73,6 +73,18 @@ visible int epoll_ctl (int efd, int op, int fd2, struct epoll_event* ev) {
     return r;
 }
 
+/* Check if stdin has data ready for reading.
+ * @returns         uint    1 = true, stdin has data, 0 false.
+ */
+uint
+stdin_has_data(void) {
+    if ((fseek(STDIN_FILENO, 0, SEEK_END), ftell(STDIN_FILENO)) > 0) {
+        rewind(STDIN_FILENO);
+        return 1;
+    }
+    return 0;
+}
+
 /* This function is intended to block epoll_wait() on desock flagged fds and fake the caller
  * into thinking the fd is ready.
  * TODO: Add additional verification that stdin has data in buffer before returning an epoll_wait
