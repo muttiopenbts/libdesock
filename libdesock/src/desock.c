@@ -49,7 +49,7 @@ const struct sockaddr_in6 stub_sockaddr_in6 = {
 int max_fd = 0;
 
 /* Indicates whether the next call to accept() should block or not */
-int accept_block = 0;
+int accept_block = 1;
 
 /* Table that holds metadata about desocketed file descriptors */
 struct fd_entry fd_table[FD_TABLE_SIZE];
@@ -258,6 +258,29 @@ void _error (char* fmt_string, ...) {
     vfprintf (stderr, fmt_string, args);
     va_end (args);
     abort ();
+}
+
+static int
+make_fd_non_blocking(int fd)
+{
+    int flags, s;
+
+    flags = fcntl(fd, F_GETFL, 0);
+    if (flags == -1)
+    {
+        perror("fcntl");
+        return -1;
+    }
+
+    flags |= O_NONBLOCK;
+    s = fcntl(fd, F_SETFL, flags);
+    if (s == -1)
+    {
+        perror("fcntl");
+        return -1;
+    }
+
+    return 0;
 }
 
 /* This function runs before the hooked applications main().

@@ -58,7 +58,7 @@ visible int epoll_ctl (int efd, int op, int fd2, struct epoll_event* ev) {
 
         if (fd_table[fd2].desock) {
             // Any entries in fd_table flagged for desock, will never be added to an epoll.
-            DEBUG_LOG (" Desocked = 0");
+            DEBUG_LOG (" Desocked = 0\n");
             return 0;
         }
     }
@@ -78,53 +78,125 @@ visible int epoll_ctl (int efd, int op, int fd2, struct epoll_event* ev) {
  */
 uint
 stdin_has_data(void) {
-    if ((fseek(STDIN_FILENO, 0, SEEK_END), ftell(STDIN_FILENO)) > 0) {
-        rewind(STDIN_FILENO);
+    #define STDIN_HAS_DATA_TIMEOUT 5
+    DEBUG_LOG ("[%d] desock::stdin_has_data.\n", gettid ());
+
+    fd_set rfds;
+    struct timeval tv;
+    int retval;
+ 
+    /* Watch stdin (fd 0) to see when it has input. */
+    FD_ZERO(&rfds);
+    FD_SET(STDIN_FILENO, &rfds);
+    /* Wait up to n seconds. */
+    tv.tv_sec = STDIN_HAS_DATA_TIMEOUT;
+    tv.tv_usec = 0;
+
+    // Call real syscall select()
+    retval = syscall_cp (SYS_select, 1, &rfds, NULL, NULL, &tv);
+    /* Don't rely on the value of tv now! */
+ 
+    if (retval > 0 ) {
+        DEBUG_LOG ("[%d] desock::stdin_has_data. Data is available now. retval: %d\n", gettid (), retval);
         return 1;
+        /* FD_ISSET(0, &rfds) will be true. */
     }
+    else {
+        DEBUG_LOG ("[%d] desock::stdin_has_data. retval: %d. No data within %d seconds.\n", gettid (), retval, STDIN_HAS_DATA_TIMEOUT);
+        return 0;
+    }
+
     return 0;
+}
+
+uint
+is_listener_notified(sfd) {
+    for (int fd_idx = 0; fd_idx <= max_fd; fd_idx++) {
+        DEBUG_LOG("%s, %d, fd_idx: %d\n", __FUNCTION__, __LINE__, fd_idx);
+        if (fd_table[fd_idx].notified == sfd) {
+            return 1;
+        }
+    }
 }
 
 /* This function is intended to block epoll_wait() on desock flagged fds and fake the caller
  * into thinking the fd is ready.
+ * This function will block if we are desocketing a listening fd. Will unblock when close is called
+ * on a desocketed read fd.
  * TODO: Add additional verification that stdin has data in buffer before returning an epoll_wait
  * for an fd that will be used for an accept() call.
  *
  * @return  return_ready_cnt    The number of file descriptors
  *                              ready for the requested I/O, or zero if no file descriptor became
- *                              ready during the requested timeout.
+ *                              ready during the requested timeout. 0 will cause calling function
+ *                              to call real epoll_wait() syscall. This might not be what is intended
+ *                              for desocking.
+ *                              If we have fds associated with efd, then always return positive cnt.
+ * @return ev                   Callers epoll_event will be populated with the fds that are ready.
  */
-static int internal_epoll_wait (int fd, struct epoll_event* ev, int cnt) {
-    DEBUG_LOG ("[%d] desock::internal_epoll_wait(%d, %p, %d) max_fd: %d \n", gettid (), fd, ev, cnt, max_fd);
+static int internal_epoll_wait (int efd, struct epoll_event* ev, int cnt) {
+    DEBUG_LOG ("[%d] desock::internal_epoll_wait(%d, %p, %d) max_fd: %d \n", gettid (), efd, ev, cnt, max_fd);
 
-    int return_ready_cnt = 0;
+    /* Will only increment if efd is associated with an fd that is flagged
+     * desock, and !listening. This should be an fd returned from accept() and caller
+     * wants to call read()
+     */ 
+    int return_ready_cnt = 0; 
     int server_sock = -1;
+    int server_sock_ready_cnt = 0; // Increment on every fd with listen flag. But block if mutux locked.
+    int accepted_sock_ready_cnt = 0; // Increment on every fd with listen flag. But block if mutux locked.
 
-    accept_block = 0;
+    accept_block = 0; // accept() will not block on sem_wait()
 
     for (int fd_idx = 0; fd_idx <= max_fd && return_ready_cnt < cnt; ++fd_idx) {
         // Iterate over every fd_table entry and match if the entry is flagged to desock and has been 
         // added to this epoll object.
-        if (fd_table[fd_idx].desock && fd_table[fd_idx].epfd == fd) {
-            DEBUG_LOG ("[%d] desock::internal_epoll_wait Found sock_fd: %d match epfd: %d.\n", gettid (), fd_idx, fd);
+        if (fd_table[fd_idx].desock && fd_table[fd_idx].epfd == efd) {
+            DEBUG_LOG ("[%d] desock::internal_epoll_wait Found sock_fd: %d match epfd: %d.\n", gettid (), fd_idx, efd);
             // Check if we have a server fd associated with the epoll fd. This would have been set during bind().
 
             if (fd_table[fd_idx].listening) {
+                // Only notify listener events that haven't already been notified.
                 DEBUG_LOG ("[%d] desock::internal_epoll_wait And sfd: %d, is listening.\n", gettid (), fd_idx);
-                // Record highest numbered fd with server_sock.
-                server_sock = fd_idx;
-            } else {
-                // This isn't a server fd. Just update returning ev with fd_table ev data.
-                DEBUG_LOG ("[%d] desock::internal_epoll_wait And sfd: %d, isn't listening.\n", gettid (), fd_idx);
-                ev[return_ready_cnt].events = fd_table[fd_idx].ep_event.events;
-                ev[return_ready_cnt].events &= (EPOLLIN | EPOLLOUT);
-                ev[return_ready_cnt].data = fd_table[fd_idx].ep_event.data;
-                ++return_ready_cnt;
+                if (!is_listener_notified(fd_idx)) {
+                    DEBUG_LOG ("[%d] desock::internal_epoll_wait and no notification sent.\n", gettid (), fd_idx);
+                    // Record highest numbered fd with server_sock.
+                    server_sock = fd_idx;
+                    server_sock_ready_cnt++;
 
-                // The fd_table events entry was marked EPOLLONESHOT, prevent this fd_entry matching any epoll fds.
-                if (fd_table[fd_idx].ep_event.events & EPOLLONESHOT) {
-                    DEBUG_LOG ("[%d] desock::internal_epoll_wait erase epfd: %d on sfd: %d.\n", gettid (), fd_table[fd_idx].epfd, fd_idx);
-                    fd_table[fd_idx].epfd = -1;
+                    DEBUG_LOG ("[%d] desock::internal_epoll_wait Server server_sock: %d, with return_ready_cnt: %d\n", gettid (), server_sock, return_ready_cnt);
+
+                    // Update caller's events with server's associated events from fd_table.
+                    ev[return_ready_cnt].events = fd_table[server_sock].ep_event.events;
+                    ev[return_ready_cnt].events &= EPOLLIN; // Caller will see fd is ready for recv
+                    ev[return_ready_cnt].data = fd_table[server_sock].ep_event.data;
+                    // Increment so that caller knows that listen fd is ready and caller can transition to accept()
+                    ++return_ready_cnt;
+
+                    // The fd_table events entry was marked EPOLLONESHOT, prevent this fd_entry matching any epoll fds.
+                    if (fd_table[server_sock].ep_event.events & EPOLLONESHOT) {
+                        fd_table[server_sock].epfd = -1;
+                    }
+                }
+            }
+            else
+            {
+                DEBUG_LOG("%s, %d, fd_idx: %d, notified: %d\n", __FUNCTION__, __LINE__, fd_idx, fd_table[fd_idx].notified);
+                // Update events that have notified flag set. Such as fds returned from accept() and are waiting to call read() and close()
+                if (fd_table[fd_idx].notified) {
+                    // This isn't a server fd but it is marked for de-socketing. Just update returning ev with fd_table ev data.
+                    DEBUG_LOG ("[%d] desock::internal_epoll_wait And sfd: %d, isn't listening.\n", gettid (), fd_idx);
+                    ev[return_ready_cnt].events = fd_table[fd_idx].ep_event.events;
+                    ev[return_ready_cnt].events &= (EPOLLIN | EPOLLOUT);
+                    ev[return_ready_cnt].data = fd_table[fd_idx].ep_event.data;
+                    ++return_ready_cnt;
+                    accepted_sock_ready_cnt++;
+
+                    // The fd_table events entry was marked EPOLLONESHOT, prevent this fd_entry matching any epoll fds.
+                    if (fd_table[fd_idx].ep_event.events & EPOLLONESHOT) {
+                        DEBUG_LOG ("[%d] desock::internal_epoll_wait erase epfd: %d on sfd: %d.\n", gettid (), fd_table[fd_idx].epfd, fd_idx);
+                        fd_table[fd_idx].epfd = -1;
+                    }
                 }
             }
         }
@@ -133,7 +205,8 @@ static int internal_epoll_wait (int fd, struct epoll_event* ev, int cnt) {
     DEBUG_LOG("[%d] desock::internal_epoll_wait server_sock: %d, return_ready_cnt: %d.\n", gettid(), server_sock, return_ready_cnt);
     // If we have at least one fd marked as a server under this epoll then we're going to attempt to block
     // until sem_post() called in hooked close() if the fd is flagged desock and !listening.
-    if (server_sock > -1 && return_ready_cnt < cnt) {
+    if (server_sock_ready_cnt > 0 && return_ready_cnt < cnt) {
+        // Stay below cnt because caller specified this value.
         int sem_value = 0;
         if (sem_getvalue(&sem, &sem_value) == 0) {
             DEBUG_LOG("[%d] desock::internal_epoll_wait calling sem_trywait(%p), sem_value: %d.\n", gettid(), sem, sem_value);
@@ -141,36 +214,36 @@ static int internal_epoll_wait (int fd, struct epoll_event* ev, int cnt) {
             DEBUG_LOG("[%d] desock::internal_epoll_wait calling sem_trywait(%p) failed\n", gettid(), sem);
         }
 
-        if (sem_trywait (&sem) == -1) {
-            DEBUG_LOG("[%d] desock::internal_epoll_wait sem_trywait()\n", gettid());
+//        if (sem_trywait (&sem) == -1) {
+//            DEBUG_LOG("[%d] desock::internal_epoll_wait sem_trywait() = -1 \n", gettid());
 
-            if (errno != EAGAIN) {
-                _error ("desock::internal_epoll_wait(): sem_trywait failed\n");
-            }
+//            if (errno != EAGAIN) {
+//                _error ("desock::internal_epoll_wait(): sem_trywait failed\n");
+//            }
 
-            if (return_ready_cnt > 0) {
-                DEBUG_LOG("[%d] desock::internal_epoll_wait Going to return return_ready_cnt: %d\n", gettid(), return_ready_cnt);
-                return return_ready_cnt;
-            }
+            //if (return_ready_cnt > 0) {
+            //    DEBUG_LOG("[%d] desock::internal_epoll_wait listen fd, and non listen fd conditions. Going to return return_ready_cnt: %d\n", gettid(), return_ready_cnt);
+            //    return return_ready_cnt;
+            //}
 
-            DEBUG_LOG("[%d] desock::internal_epoll_wait sem_wait()\n", gettid());
+            DEBUG_LOG("[%d] desock::internal_epoll_wait Entering sem_wait(), accepted_sock_ready_cnt: %d\n", gettid(), accepted_sock_ready_cnt);
             sem_wait (&sem);
-        }
+            DEBUG_LOG("[%d] desock::internal_epoll_wait Exit sem_wait()\n", gettid());
+//        }
 
-        DEBUG_LOG ("[%d] desock::internal_epoll_wait Server server_sock: %d, with return_ready_cnt: %d\n", gettid (), server_sock, return_ready_cnt);
 
-        ev[return_ready_cnt].events = fd_table[server_sock].ep_event.events;
-        ev[return_ready_cnt].events &= EPOLLIN;
-        ev[return_ready_cnt].data = fd_table[server_sock].ep_event.data;
-        ++return_ready_cnt;
-
-        // The fd_table events entry was marked EPOLLONESHOT, prevent this fd_entry matching any epoll fds.
-        if (fd_table[server_sock].ep_event.events & EPOLLONESHOT) {
-            fd_table[server_sock].epfd = -1;
-        }
+        // Block here until stdin is ready with data to read.
+        // This doesn't have the desired effect for all desock scenarios.
+        //while (stdin_has_data() == 0) {
+        //    DEBUG_LOG("[%d] desock::internal_epoll_wait Stdin no data.\n", gettid());
+        //    sleep(5);
+        //}
     }
 
-    return return_ready_cnt;
+//    return return_ready_cnt;
+    DEBUG_LOG("[%d] desock::internal_epoll_wait returning: %d\n", gettid(), server_sock_ready_cnt + accepted_sock_ready_cnt);
+
+    return server_sock_ready_cnt + accepted_sock_ready_cnt;
 }
 
 visible int epoll_pwait (int fd, struct epoll_event* ev, int cnt, int to, const sigset_t * sigs) {
@@ -200,11 +273,11 @@ visible int epoll_pwait (int fd, struct epoll_event* ev, int cnt, int to, const 
  * @params[2]   ev  Pointer that the caller will expect the function to fill with the fd ready for action.
  */
 visible int epoll_wait (int fd, struct epoll_event* ev, int cnt, int to) {
-    DEBUG_LOG ("[%d] desock::epoll_wait(%d, %p, %d, %d)", gettid (), fd, ev, cnt, to);
+    DEBUG_LOG ("[%d] desock::epoll_wait(%d, %p, %d, %d)\n", gettid (), fd, ev, cnt, to);
 
     int ret = internal_epoll_wait (fd, ev, cnt);
     if (ret) {
-        DEBUG_LOG (" internal_epoll_wait = %d\n", ret);
+        DEBUG_LOG (" Desocked internal_epoll_wait = %d\n", ret);
         return ret;
     } else {
         ret = __syscall_ret (__syscall (SYS_epoll_pwait, fd, ev, cnt, to, 0));

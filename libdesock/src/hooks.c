@@ -18,10 +18,20 @@
  
 /* This function is called whenever a read on a network
  * connection occurs. Read from stdin instead.
+ * Note: If 1st byte of read data is linefeed or carriage return character,
+ * this function will return 0, no data.
  */
 ssize_t hook_input (char* buf, size_t size) {
     DEBUG_LOG ("[%d] desock::hook_input(%p, %d)", gettid (), buf, size);
-    return syscall_cp(SYS_read, STDIN_FILENO, buf, size);
+    int count = syscall_cp(SYS_read, STDIN_FILENO, buf, size);
+
+    // Interactive session with desocket needs to be able to detect when client wishes to disconnect.
+    if (buf[0] == 10 || buf[0] == 13) // NLF, NL, CR
+    {
+        return 0; // Caller should realize there is no data and likely close() fd.
+    }
+
+    return count;
 }
 
 /* This function is called whenever a write on a network

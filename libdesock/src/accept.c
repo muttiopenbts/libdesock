@@ -109,8 +109,15 @@ static int internal_accept (int fd, struct sockaddr* restrict addr, socklen_t * 
 
         if (accept_block) {
             DEBUG_LOG ("[%d] desock::internal_accept going to block until close().\n", gettid ());
-            //sem_wait (&sem);
-            return -1;
+
+            int sem_value = 0;
+            if (sem_getvalue(&sem, &sem_value) == 0) {
+                DEBUG_LOG("[%d] desock::internal_accept calling sem_wait(%p), sem_value: %d.\n", gettid(), sem, sem_value);
+            } else {
+                DEBUG_LOG("[%d] desock::internal_accept calling sem_wait(%p) sem_getvalue() failed\n", gettid(), sem);
+            }
+
+            sem_wait (&sem);
         }
         else
         {
