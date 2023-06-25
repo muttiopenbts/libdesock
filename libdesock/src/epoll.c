@@ -111,12 +111,15 @@ stdin_has_data(void) {
 
 uint
 is_listener_notified(sfd) {
+    DEBUG_LOG("%s, %d, sfd: %d, max_fd: %d\n", __FUNCTION__, __LINE__, sfd, max_fd);
     for (int fd_idx = 0; fd_idx <= max_fd; fd_idx++) {
-        DEBUG_LOG("%s, %d, fd_idx: %d\n", __FUNCTION__, __LINE__, fd_idx);
+        //DEBUG_LOG("%s, %d, fd_idx: %d\n", __FUNCTION__, __LINE__, fd_idx);
         if (fd_table[fd_idx].notified == sfd) {
             return 1;
         }
     }
+
+    return 0;
 }
 
 /* This function is intended to block epoll_wait() on desock flagged fds and fake the caller
@@ -214,33 +217,19 @@ static int internal_epoll_wait (int efd, struct epoll_event* ev, int cnt) {
             DEBUG_LOG("[%d] desock::internal_epoll_wait calling sem_trywait(%p) failed\n", gettid(), sem);
         }
 
-//        if (sem_trywait (&sem) == -1) {
-//            DEBUG_LOG("[%d] desock::internal_epoll_wait sem_trywait() = -1 \n", gettid());
-
-//            if (errno != EAGAIN) {
-//                _error ("desock::internal_epoll_wait(): sem_trywait failed\n");
-//            }
-
-            //if (return_ready_cnt > 0) {
-            //    DEBUG_LOG("[%d] desock::internal_epoll_wait listen fd, and non listen fd conditions. Going to return return_ready_cnt: %d\n", gettid(), return_ready_cnt);
-            //    return return_ready_cnt;
-            //}
-
-            DEBUG_LOG("[%d] desock::internal_epoll_wait Entering sem_wait(), accepted_sock_ready_cnt: %d\n", gettid(), accepted_sock_ready_cnt);
-            sem_wait (&sem);
-            DEBUG_LOG("[%d] desock::internal_epoll_wait Exit sem_wait()\n", gettid());
-//        }
+        DEBUG_LOG("[%d] desock::internal_epoll_wait Entering sem_wait(), accepted_sock_ready_cnt: %d\n", gettid(), accepted_sock_ready_cnt);
+        sem_wait (&sem);
+        DEBUG_LOG("[%d] desock::internal_epoll_wait Exit sem_wait()\n", gettid());
 
 
         // Block here until stdin is ready with data to read.
         // This doesn't have the desired effect for all desock scenarios.
-        //while (stdin_has_data() == 0) {
-        //    DEBUG_LOG("[%d] desock::internal_epoll_wait Stdin no data.\n", gettid());
-        //    sleep(5);
-        //}
+        while (stdin_has_data() == 0) {
+            DEBUG_LOG("[%d] desock::internal_epoll_wait Stdin no data.\n", gettid());
+            sleep(5);
+        }
     }
 
-//    return return_ready_cnt;
     DEBUG_LOG("[%d] desock::internal_epoll_wait returning: %d\n", gettid(), server_sock_ready_cnt + accepted_sock_ready_cnt);
 
     return server_sock_ready_cnt + accepted_sock_ready_cnt;
