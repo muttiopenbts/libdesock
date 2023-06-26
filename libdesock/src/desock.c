@@ -16,6 +16,7 @@
 #include "desock.h"
 #include <fcntl.h>
 
+//TODO: Populate values from env variables
 const struct sockaddr_in stub_sockaddr_in = {
     // TODO: make configurable at runtime or build
     .sin_family = AF_INET,
@@ -23,14 +24,16 @@ const struct sockaddr_in stub_sockaddr_in = {
     .sin_addr.s_addr = 0x100007f
 };
 
-const struct sockaddr_in stub_client_sockaddr_in = {
+//TODO: Populate values from env variables
+const struct sockaddr_in stub_local_sockaddr_in = {
     // TODO: make configurable at runtime or build
     .sin_family = AF_INET,
     .sin_port = 53764, // 53764 = 1234, 45824 = 179
     .sin_addr.s_addr = 0x100007f
 };
 
-const struct sockaddr_in stub_server_sockaddr_in = {
+//TODO: Populate values from env variables
+const struct sockaddr_in stub_remote_sockaddr_in = {
     // TODO: make configurable at runtime or build
     .sin_family = AF_INET,
     .sin_port = 45824, // 53764 = 1234, 45824 = 179
@@ -61,14 +64,24 @@ struct fd_entry fd_table[FD_TABLE_SIZE];
 sem_t sem;
 
 /* Whitelist for ports that should only be desocketed.
- * Configured via environment variable DESOCK_PORT
+ * Configured via environment variable DESOCK_PORT_LOCAL
  */
-unsigned int desock_port = NULL;
+unsigned long desock_port_local = NULL;
 
-/* Configured via environment variable DESOCK_LOCALIP.
+/* Port that will be used when required for desocketed syscalls.
+ * Configured via environment variable DESOCK_PORT_REMOTE
+ */
+unsigned long desock_port_remote = NULL;
+
+/* Configured via environment variable DESOCK_LOCALIPV4.
  * e.g. "111.111.111.111\0"
  */
 char desock_localipv4[MAX_IPV4_LEN + 1];
+
+/* Configured via environment variable DESOCK_REMOTEIPV4.
+ * e.g. "111.111.111.111\0"
+ */
+char desock_remoteipv4[MAX_IPV4_LEN + 1];
 
 /* Given an fd that is being desocketed fill the given sockaddress structure
    with the right sockaddr stub from above.
@@ -81,7 +94,7 @@ void fill_sockaddr (int fd, struct sockaddr* addr, socklen_t * addr_len) {
                 ptr->sin_family = AF_INET;
                 if (*addr_len >= sizeof (struct sockaddr_in)) {
                     // TODO: Maybe set port to original fd port
-                    ptr->sin_port = stub_sockaddr_in.sin_port;
+                    ptr->sin_port = htons(desock_port_local);
                     ptr->sin_addr = stub_sockaddr_in.sin_addr;
                     // desock_localipv4 user configurable via env var
                     ptr->sin_addr.s_addr = inet_addr(desock_localipv4);
@@ -115,6 +128,30 @@ is_valid_ip_address(char *ip_address)
     return result != 0;
 }
 
+// Convert a struct sockaddr address to a string, IPv4 and IPv6:
+// Taken from https://gist.github.com/jkomyno/45bee6e79451453c7bbdc22d033a282e
+char *
+get_ip_str(const struct sockaddr *sa, char *s, size_t maxlen)
+{
+    switch(sa->sa_family) {
+        case AF_INET:
+            inet_ntop(AF_INET, &(((struct sockaddr_in *)sa)->sin_addr),
+                    s, maxlen);
+            break;
+
+        case AF_INET6:
+            inet_ntop(AF_INET6, &(((struct sockaddr_in6 *)sa)->sin6_addr),
+                    s, maxlen);
+            break;
+
+        default:
+            strncpy(s, "Unknown AF", maxlen);
+            return NULL;
+    }
+
+    return s;
+}
+
 /* Read user defined ip v4 address to set on de-socketed fd.
  */
 void
@@ -138,28 +175,80 @@ set_desock_localipv4(void) {
     }
 }
 
-/* Read user defined port number to desock. Whitelist.
+/* Read user defined ip v4 address to set on de-socketed fd.
+ * This ip address represents the remote peer's address. 
+ * e.g. Desocketing a server the peer would be the client's ip.
  */
 void
-set_desock_port(void) {
-    #define MAX_PORT_LEN 6 // 65535, len is 5 + 1 (for null)
-    // Server port number we want to hook.
-    char server_port[MAX_PORT_LEN]  = "";
+set_desock_remoteipv4(void) {
     char *p_tmp;
 
-    if (( p_tmp = getenv( "DESOCK_PORT" )) != NULL ) {
-        strncpy( server_port, p_tmp, MAX_PORT_LEN-1 );           // Save a copy for our use.
-        desock_port = (unsigned int)strtoul(server_port, NULL, 10);
-        
+    if (( p_tmp = getenv( "DESOCK_REMOTEIPV4" )) != NULL ) {
+        strncpy( desock_remoteipv4, p_tmp, MAX_IPV4_LEN ); //Save last element for null
+        desock_remoteipv4[MAX_IPV4_LEN] = '\0';
         // Check if valid port range
-        if (!(desock_port > 0 && desock_port <= 65535)) {
-            fprintf( stderr, "DESOCK_PORT out of valid range. %s.\n", p_tmp);
+        if (!(is_valid_ip_address(desock_localipv4))) {
+            fprintf( stderr, "DESOCK_REMOTEIPV4 bad format. %s.\n", p_tmp);
             fprintf( stderr, "Exiting.\n");
             exit(EXIT_FAILURE);
         }
     }
     else {
-        fprintf( stderr, "No DESOCK_PORT variable set.\n");
+        fprintf( stderr, "No DESOCK_REMOTEIPV4 variable set.\n");
+        fprintf( stderr, "Exiting.\n");
+        exit(EXIT_FAILURE);
+    }
+}
+
+/* Read user defined port number to desock. Whitelist.
+ */
+void
+set_desock_port_local(void) {
+    #define MAX_PORT_LEN 6 // 65535, len is 5 + 1 (for null)
+    // Server port number we want to hook.
+    char port[MAX_PORT_LEN]  = "";
+    char *p_tmp;
+
+    if (( p_tmp = getenv( "DESOCK_PORT_LOCAL" )) != NULL ) {
+        strncpy( port, p_tmp, MAX_PORT_LEN-1 );           // Save a copy for our use.
+        desock_port_local = strtoul(port, NULL, 10);
+        
+        // Check if valid port range
+        if (!(desock_port_local > 0 && desock_port_local <= 65535)) {
+            fprintf( stderr, "DESOCK_PORT_LOCAL out of valid range. %s.\n", p_tmp);
+            fprintf( stderr, "Exiting.\n");
+            exit(EXIT_FAILURE);
+        }
+    }
+    else {
+        fprintf( stderr, "No DESOCK_PORT_LOCAL variable set.\n");
+        fprintf( stderr, "Exiting.\n");
+        exit(EXIT_FAILURE);
+    }
+}
+
+/* Read user defined port number to desock. Whitelist.
+ */
+void
+set_desock_port_remote(void) {
+    #define MAX_PORT_LEN 6 // 65535, len is 5 + 1 (for null)
+    // Server port number we want to hook.
+    char port[MAX_PORT_LEN]  = "";
+    char *p_tmp;
+
+    if (( p_tmp = getenv( "DESOCK_PORT_REMOTE" )) != NULL ) {
+        strncpy( port, p_tmp, MAX_PORT_LEN-1 );           // Save a copy for our use.
+        desock_port_remote = strtoul(port, NULL, 10);
+        
+        // Check if valid port range
+        if (!(desock_port_remote > 0 && desock_port_remote <= 65535)) {
+            fprintf( stderr, "DESOCK_PORT_REMOTE out of valid range. %s.\n", p_tmp);
+            fprintf( stderr, "Exiting.\n");
+            exit(EXIT_FAILURE);
+        }
+    }
+    else {
+        fprintf( stderr, "No DESOCK_PORT_REMOTE variable set.\n");
         fprintf( stderr, "Exiting.\n");
         exit(EXIT_FAILURE);
     }
@@ -170,14 +259,16 @@ set_desock_port(void) {
  */
 void
 init_variables (void) {
-    set_desock_port();
+    set_desock_port_local();
+    set_desock_port_remote();
     set_desock_localipv4();
+    set_desock_remoteipv4();
 }
 
 /* Given an fd that is being desocketed fill the given sockaddress structure
    with the right sockaddr stub from above.
  */
-void fill_server_sockaddr (int fd, struct sockaddr* addr, socklen_t * addr_len) {
+void fill_remote_sockaddr (int fd, struct sockaddr* addr, socklen_t * addr_len) {
     if (addr && addr_len) {
         switch (fd_table[fd].domain) {
         case AF_INET:{
@@ -185,10 +276,10 @@ void fill_server_sockaddr (int fd, struct sockaddr* addr, socklen_t * addr_len) 
                 ptr->sin_family = AF_INET;
                 if (*addr_len >= sizeof (struct sockaddr_in)) {
                     // TODO: Maybe set port to original fd port
-                    ptr->sin_port = stub_server_sockaddr_in.sin_port;
-                    ptr->sin_addr = stub_server_sockaddr_in.sin_addr;
+                    ptr->sin_port = htons(desock_port_remote);
+                    ptr->sin_addr = stub_remote_sockaddr_in.sin_addr;
 
-                    ptr->sin_addr.s_addr = inet_addr("1.1.1.4");
+                    ptr->sin_addr.s_addr = inet_addr(desock_remoteipv4);
 
                     *addr_len = sizeof(struct sockaddr_in);
                 }
@@ -211,31 +302,31 @@ void fill_server_sockaddr (int fd, struct sockaddr* addr, socklen_t * addr_len) 
 /* Given an fd that is being desocketed fill the given sockaddress structure
    with the right sockaddr stub from above.
  */
-void fill_client_sockaddr (int fd, struct sockaddr* addr, socklen_t * addr_len) {
+void fill_local_sockaddr (int fd, struct sockaddr* addr, socklen_t * addr_len) {
     if (addr && addr_len) {
         switch (fd_table[fd].domain) {
-        case AF_INET:{
+            case AF_INET:{
                 struct sockaddr_in* ptr = (struct sockaddr_in *) addr;
                 ptr->sin_family = AF_INET;
                 if (*addr_len >= sizeof (struct sockaddr_in)) {
                     // TODO: Maybe set port to original fd port
-                    ptr->sin_port = stub_client_sockaddr_in.sin_port;
-                    ptr->sin_addr = stub_client_sockaddr_in.sin_addr;
+                    ptr->sin_port = htons(desock_port_local);
+                    ptr->sin_addr = stub_local_sockaddr_in.sin_addr;
 
-                    ptr->sin_addr.s_addr = inet_addr("1.1.1.1");
+                    ptr->sin_addr.s_addr = fd_table[fd].address;
 
                     *addr_len = sizeof(struct sockaddr_in);
                 }
                 break;
             }
 
-        case AF_INET6:{
+            case AF_INET6:{
                 *addr_len = MIN (*addr_len, sizeof (stub_sockaddr_in6));
                 memcpy (addr, &stub_sockaddr_in6, *addr_len);
                 break;
             }
 
-        default:{
+            default:{
                 _error ("desock::fill_sockaddr(): Invalid domain %d\n", fd_table[fd].domain);
             }
         }

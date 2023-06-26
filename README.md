@@ -66,15 +66,23 @@ when using AFL++.
 The target process may have several listening ports. Specify the individual server port to desock and ignore the rest.
 Specify the interest port using the environment variable 
 ```sh
-export desock_port=666
+export DESOCK_PORT_LOCAL=666
+```
+Specify the client's socket port number using the environment variable 
+```sh
+export DESOCK_PORT_REMOTE=4444
 ```
 Specify the v4 IP address to be associated with the server's socket.
 ```sh
-export DESOCK_LOCALIPV4=127.0.0.1
+export DESOCK_LOCALIPV4=1.1.1.4 
+```
+Specify the v4 IP address to be associated with the client's socket.
+```sh
+export DESOCK_REMOTEIPV4=1.1.2.2
 ```
 Example test run
 ```sh
-echo -e 'MYFUZZEDDATA' | DESOCK_PORT=666 DESOCK_LOCALIPV4=127.0.0.1 LD_PRELOAD=libdesock.so ./test-server 666
+echo -e 'MYFUZZEDDATA' | DESOCK_PORT_REMOTE=4444 DESOCK_PORT_LOCAL=666 DESOCK_LOCALIPV4=1.1.1.4 DESOCK_REMOTEIPV4=1.1.2.2 LD_PRELOAD=libdesock.so ./test-server 666
 ```
 
 ## Examples

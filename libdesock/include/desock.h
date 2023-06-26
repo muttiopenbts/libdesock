@@ -8,6 +8,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <sys/un.h>
+#include <arpa/inet.h>
 
 // Check that we are desocketing at least one of client or server
 #ifndef DESOCK_BIND
@@ -29,8 +30,10 @@ If conns >= MAX_CONNS accept() will block
 #define MAX_IPV4_LEN 15
 
 extern sem_t sem;
-extern unsigned int desock_port;
+extern unsigned long desock_port_local;
+extern unsigned long desock_port_remote;
 extern char desock_localipv4[MAX_IPV4_LEN + 1];
+extern char desock_remoteipv4[MAX_IPV4_LEN + 1];
 
 #ifdef DEBUG
 void _debug (char*, ...);
@@ -40,10 +43,16 @@ void _debug (char*, ...);
 #endif
 
 void fill_sockaddr (int, struct sockaddr*, socklen_t*);
+void fill_local_sockaddr (int, struct sockaddr*, socklen_t*);
+void fill_remote_sockaddr (int, struct sockaddr*, socklen_t*);
 void _error (char*, ...);
-unsigned int is_valid_ip_address(char *);
+unsigned int is_valid_ip_address (char *);
+char* get_ip_str(const struct sockaddr*, char*, size_t);
 
 struct fd_entry {
+    /* Optional Internet address. */
+    uint32_t address;
+
     /* Optional port number for network sockets */
     unsigned int port;
 
@@ -72,6 +81,8 @@ extern struct fd_entry fd_table[FD_TABLE_SIZE];
 extern int accept_block;
 extern int max_fd;
 extern const struct sockaddr_in stub_sockaddr_in;
+extern const struct sockaddr_in stub_local_sockaddr_in;
+extern const struct sockaddr_in stub_remote_sockaddr_in;
 extern const struct sockaddr_in6 stub_sockaddr_in6;
 extern const struct sockaddr_un stub_sockaddr_un;
 
@@ -90,6 +101,8 @@ extern const struct sockaddr_un stub_sockaddr_un;
 void clear_fd_table_entry(int);
 #else
 inline void clear_fd_table_entry (int idx) {
+    fd_table[idx].port = 0;
+    fd_table[idx].address = 0;
     fd_table[idx].epfd = -1;
     fd_table[idx].desock = 0;
     fd_table[idx].listening = 0;

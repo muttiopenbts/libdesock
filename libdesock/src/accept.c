@@ -143,7 +143,7 @@ static int internal_accept (int fd, struct sockaddr* restrict addr, socklen_t * 
         fd_table[new_fd].listening = 0;
 
         // TODO: verify if socket stub needs changing.
-        fill_sockaddr (fd, addr, len);
+        fill_remote_sockaddr (fd, addr, len);
 
         DEBUG_LOG (" new_fd: %d\n", new_fd);
 

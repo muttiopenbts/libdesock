@@ -11,21 +11,26 @@
  * Added check to ensure that we only desock 1 netwokr port number for now. This port number
  * is user defineable via environment variable. This was done for situation where you are trying
  * to fuzz a network server that might be listening on several port numbers and de-socketing them
- * all caused issues. 
- * TODO: add user defined option to disable selective bind desocketing based on port number.
+ * all caused issues.
  * TODO: add option for user to desocket multiple port numbers, protocols, and domain types.
+ * TODO: Make these caller defined details permanent for such calls as fill_local_sockaddr.
  */
 visible int 
 bind (int fd, const struct sockaddr* addr, socklen_t len) {
     struct sockaddr_in *ss = (struct sockaddr_in *)addr;
     DEBUG_LOG("[%d] desock::bind(%d, %p, %d) = 0. Port=%hu.\n", gettid(), fd, addr, len, ntohs(ss->sin_port));
 
-    if (VALID_FD (fd) && DESOCK_FD (fd) && (ntohs(ss->sin_port) == desock_port) && DESOCK_FD_V4(fd)) {
+    if (VALID_FD (fd) && DESOCK_FD (fd) && (ntohs(ss->sin_port) == desock_port_local) && DESOCK_FD_V4(fd)) {
         // TODO: Create better lookup function for meeting desock criteria.
 
         fd_table[fd].desock = 1;
         fd_table[fd].port = ntohs(ss->sin_port);
-        DEBUG_LOG("[%d] desock::bind(%d, %p, %d) = 0. Port=%hu. Success\n", gettid(), fd, addr, len, ntohs(ss->sin_port));
+
+        //Need to store to help when desocketing services that depend on it.
+        fd_table[fd].address = (((struct sockaddr_in *)addr)->sin_addr.s_addr); 
+
+        char ip_str[MAX_IPV4_LEN + 1];
+        DEBUG_LOG("[%d] desock::bind(%d, %p, %d) = 0. ip: %s, Port=%hu. Success\n", gettid(), fd, addr, len, get_ip_str(addr, ip_str, MAX_IPV4_LEN+1), ntohs(ss->sin_port));
 
         return 0;
     } else {
