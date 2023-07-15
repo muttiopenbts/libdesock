@@ -45,7 +45,10 @@ The following options are specific to libdesock:
 
 If configuration is done compile with
 ```sh
+cd <project root>
 meson compile
+cd build
+ninja
 ```
 
 This creates a shared library `./build/libdesock.so` and a static library `./build/libdesock.a`.
@@ -89,6 +92,9 @@ echo -e 'MYFUZZEDDATA' | DESOCK_PORT_REMOTE=4444 DESOCK_PORT_LOCAL=666 DESOCK_LO
 If you are using libdesock and AFL for fuzzing, the programs under test
 usually require a special setup to work with AFL. Checkout our [examples](./examples) 
 directory for some examples on how to properly setup network applications for fuzzing.
+
+## Overview DFD
+![Network daemon dfd](libdesock.png)
 
 ## Known Bugs
 - TCP servers using [libuv](https://libuv.org/) cannot be de-socket-ed (yet). De-socketing of libuv currently only works with UDP servers. It only takes a small change to fix this though, if anyone needs this create an issue.

@@ -14,6 +14,7 @@
 
 #include "syscall.h"
 #include "desock.h"
+#include "proto.h"
 #include <fcntl.h>
 
 //TODO: Populate values from env variables
@@ -66,12 +67,12 @@ sem_t sem;
 /* Whitelist for ports that should only be desocketed.
  * Configured via environment variable DESOCK_PORT_LOCAL
  */
-unsigned long desock_port_local = NULL;
+unsigned long desock_port_local = 0;
 
 /* Port that will be used when required for desocketed syscalls.
  * Configured via environment variable DESOCK_PORT_REMOTE
  */
-unsigned long desock_port_remote = NULL;
+unsigned long desock_port_remote = 0;
 
 /* Configured via environment variable DESOCK_LOCALIPV4.
  * e.g. "111.111.111.111\0"
@@ -175,6 +176,29 @@ set_desock_localipv4(void) {
     }
 }
 
+
+/* Read user defined state fsm fuzzing.
+ */
+void
+set_desock_state(void) {
+    char *p_tmp;
+
+    if (( p_tmp = getenv( "DESOCK_STATE" )) != NULL ) {
+        strncpy( desock_state, p_tmp, MAX_STATE_ID -1 ); //Save last element for null
+        desock_state[MAX_STATE_ID -1] = '\0';
+
+        /* Initilize statelist */
+        init_state_list(desock_state);
+
+        /* Validate state exists */
+        if (is_valid_state(desock_state) != true) {
+            fprintf( stderr, "DESOCK_STATE bad format. %s.\n", p_tmp);
+            fprintf( stderr, "Exiting.\n");
+            exit(EXIT_FAILURE);
+        }
+    }
+}
+
 /* Read user defined ip v4 address to set on de-socketed fd.
  * This ip address represents the remote peer's address. 
  * e.g. Desocketing a server the peer would be the client's ip.
@@ -263,6 +287,7 @@ init_variables (void) {
     set_desock_port_remote();
     set_desock_localipv4();
     set_desock_remoteipv4();
+    set_desock_state();
 }
 
 /* Given an fd that is being desocketed fill the given sockaddress structure

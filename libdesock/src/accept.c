@@ -53,7 +53,7 @@ get_random(int* num,int lower, int upper)
  */
 int
 get_next_fd_incr(int fd) {
-    int new_fd = NULL;
+    int new_fd = 0;
 
     // dup() on socket fd ensures that any getsock() type calls on our fake socket, work correctly.
     new_fd = syscall (SYS_dup, fd);

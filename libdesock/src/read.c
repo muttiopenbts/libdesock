@@ -10,7 +10,7 @@
 #include "desock.h"
 #include "peekbuffer.h"
 #include "hooks.h"
-
+#include "proto.h"
 
 #include <stdio.h>
 #include <sys/mman.h>
@@ -64,11 +64,21 @@ static long internal_readv (struct iovec* iov, int iov_count, int* full, int pee
     return read_total;
 }
 
+void
+state_handler (void) {
+    if (desock_state != NULL) {
+        DEBUG_LOG ("[%s] desock_state %s\n", __FUNCTION__, desock_state);
+        if (is_valid_state(desock_state)) {
+            DEBUG_LOG ("[%s] desock_state, is valid state.\n", __FUNCTION__);
+        }
+    }
+}
+
 /* Calling read() and expecting to get data from stdin requires piping your data to the process.
     e.g. # clear; echo -e 'MYFUZZEDDATA' |LD_PRELOAD=libdesock.so ./echo_server-epoll 179
  */
 visible ssize_t read (int fd, void* buf, size_t count) {
-    DEBUG_LOG ("[%d] desock::read(%d, %p, %lu)\n", gettid (), fd, buf, count);
+    DEBUG_LOG ("[%d:%s:%d] desock::read(%d, %p, %lu)\n", gettid (), __FUNCTION__, __LINE__, fd, buf, count);
 
     /* TODO: Disable reading from certain file descriptors that can interfere with tests. e.g. stdin.
      * Make this user configurable.
@@ -82,14 +92,53 @@ visible ssize_t read (int fd, void* buf, size_t count) {
             offset = peekbuffer_mv (buf, count);
         }
 
-        DEBUG_LOG ("[%d] desock::read offset: %d\n", gettid (), offset);
+        DEBUG_LOG ("[%d:%s:%d] desock::read offset: %d\n", gettid (), __FUNCTION__, __LINE__, offset);
 
         if (offset < count) {
             errno = 0;
-            offset += hook_input((char *) buf + offset, count - offset);
+
+            /* Attempt to implement sateful fuzzing
+            */
+            if (desock_state != NULL) {
+                DEBUG_LOG ("[%s:%d]\n", __FUNCTION__, __LINE__);
+                if (is_start_state()) {
+                    if (is_end_state(desock_state)) {
+                        // Only one state so keep buf and offset as is.
+                        DEBUG_LOG ("[%s:%d]\n", __FUNCTION__, __LINE__);
+                        offset += hook_input((char *) buf + offset, count - offset);
+                    }
+                    else {
+                        DEBUG_LOG ("[%s:%d]\n", __FUNCTION__, __LINE__);
+                        offset += hook_input((char *) buf + offset, count - offset);
+                        /* We're at the first state and data arrived. Need to store these bytes for later.
+                        * Store read buffer data into final state resp_bytes, replace buf bytes with 
+                        * current state resp_bytes, and update offset.
+                        */
+                        set_state_resp_bytes(desock_state, buf);
+                        get_current_state_resp_bytes_and_incr(buf, offset);
+                        // TODO: Update offset
+                    }
+                }
+                else if (is_end_state(desock_state)) {
+                    get_state_resp_bytes(desock_state, buf, MAX_PROTO_BYTES);
+                    offset = 7;
+                }
+                else if (is_transition_state(desock_state)) {
+                    DEBUG_LOG ("[%s:%d]\n", __FUNCTION__, __LINE__);
+                    get_current_state_resp_bytes_and_incr(buf, MAX_PROTO_BYTES);
+                    offset = 7;
+                }
+                else { // FSM states have completed. Just wait for data on stdin
+                    offset += hook_input((char *) buf + offset, count - offset);
+                }
+                // END
+            }
+            else { // Caller doesn't want fsm fuzzing mode
+                offset += hook_input((char *) buf + offset, count - offset);
+            }
 
             DEBUG_LOG(" buf: %s\n", buf);
-            DEBUG_LOG ("[%d] desock::read Desock hook_input offset: %d, errno: %d\n", gettid (), offset, errno);
+            DEBUG_LOG ("[%d:%s:%d] desock::read Desock hook_input offset: %d, errno: %d\n", gettid (), __FUNCTION__, __LINE__, offset, errno);
 
             if (errno) {
                 DEBUG_LOG (" = -1\n");
@@ -100,6 +149,7 @@ visible ssize_t read (int fd, void* buf, size_t count) {
         sleep(2);
 #endif
         DEBUG_LOG(" offset: %d\n", offset);
+
         return offset;
     } 
     else if (fd == STDIN_FILENO) { // TODO: Make this user configurable.
@@ -142,17 +192,23 @@ static ssize_t internal_recv (int fd, char* buf, size_t len, int flags) {
 }
 
 visible ssize_t recvfrom (int fd, void* buf, size_t len, int flags, struct sockaddr* restrict addr, socklen_t * alen) {
-    if (VALID_FD (fd) && fd_table[fd].desock) {
-        DEBUG_LOG ("[%d] desock::recvfrom(%d, %p, %lu, %d, %p, %p)", gettid (), fd, buf, len, flags, addr, alen);
+    int result = 0;
+    DEBUG_LOG("[%d] desock::recvfrom(%d, %p, %lu, %d, %p, %p)\n", gettid(), fd, buf, len, flags, addr, alen);
 
+    if (VALID_FD (fd) && fd_table[fd].desock) {
+        DEBUG_LOG ("[%d] desock::recvfrom. Desock\n", gettid ());
+
+        /* Server calling on a fd from accept() */
         fill_sockaddr (fd, addr, alen);
 
-        int r = internal_recv (fd, buf, len, flags);
-        DEBUG_LOG (" = %d\n", r);
-        return r;
+        result = internal_recv (fd, buf, len, flags);
+        DEBUG_LOG (" = %d\n", result);
+        return result;
     } else {
-        DEBUG_LOG ("[%d] desock::recvfrom(%d, %p, %lu, %d, %p, %p)", gettid (), fd, buf, len, flags, addr, alen);
-        return socketcall_cp (recvfrom, fd, buf, len, flags, addr, alen);
+        result = socketcall_cp(recvfrom, fd, buf, len, flags, addr, alen);
+        DEBUG_LOG ("[%d] desock::recvfrom no desock\n", gettid ());
+        DEBUG_LOG (" = %d\n", result);
+        return result;
     }
 }
 

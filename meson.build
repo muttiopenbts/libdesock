@@ -46,6 +46,7 @@ sources = [
     'libdesock/src/listen.c',
     'libdesock/src/peekbuffer.c',
     'libdesock/src/poll.c',
+    'libdesock/src/proto.c',
     'libdesock/src/read.c',
     'libdesock/src/select.c',
     'libdesock/src/sendfile.c',
