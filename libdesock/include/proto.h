@@ -35,6 +35,9 @@ typedef struct proto_state_def {
 
     /* Raw network bytes to write/send to network daemon. */
     unsigned char resp_bytes[MAX_PROTO_BYTES];
+    /* Number of actual used bytes. */
+    unsigned int resp_bytes_sz;
+
 } state_def;
 
 extern state_def state_list[MAX_STATES];
@@ -47,8 +50,8 @@ extern bool is_current_state(char *state);
 extern bool is_end_state(char *state);
 extern bool is_start_state();
 extern bool is_transition_state(char *state);
-extern bool set_state_resp_bytes(char *state, char *resp_bytes);
-extern bool get_state_resp_bytes(char *state, unsigned char *buf, size_t buf_size);
-extern bool get_current_state_resp_bytes_and_incr(unsigned char *buf, size_t buf_size);
+extern bool set_state_resp_bytes(char *state, char *resp_bytes, size_t buf_size);
+extern int get_state_resp_bytes(char *state, unsigned char *buf);
+extern int get_current_state_resp_bytes_and_incr(unsigned char *buf);
 
 #endif /* PROTO_H */

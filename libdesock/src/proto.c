@@ -43,6 +43,7 @@ state_def *state_def_new() {
     memset(my_state->id, '\0', sizeof(MAX_STATE_ID));
     my_state->is_current_state = false;
     my_state->is_processed = false;
+    my_state->resp_bytes_sz = 0;
     return my_state;
 }
 
@@ -55,16 +56,17 @@ void init_state_list(char *state) {
     strncpy(state_1->id, "state1", sizeof(state_1->id));
     state_1->prev = NULL;
     memcpy(state_1->resp_bytes, (char [MAX_PROTO_BYTES]){'s','t','a','t','e','1','\n'}, MAX_PROTO_BYTES);
+    state_1->resp_bytes_sz = 7;
 
     state_def *state_2 = state_def_new();
     strncpy(state_2->id, "state2", sizeof(state_2->id));
     state_2->prev = NULL;
     memcpy(state_2->resp_bytes, (char [MAX_PROTO_BYTES]){'s','t','a','t','e','2','\n'}, MAX_PROTO_BYTES);
+    state_2->resp_bytes_sz = 7;
 
     state_def *state_3 = state_def_new();
     strncpy(state_3->id, "state3", sizeof(state_3->id));
     state_3->prev = NULL;
-    memcpy(state_3->resp_bytes, (char [MAX_PROTO_BYTES]){'s','t','a','t','e','3','\n'}, MAX_PROTO_BYTES);
 
     state_list[0] = *state_1;
     state_list[1] = *state_2;
@@ -84,13 +86,14 @@ void init_state_list(char *state) {
 /* @Return: true if state matches an entry.
  * TODO: add size parameter.
  */
-bool set_state_resp_bytes(char *state, char *resp_bytes) {
+bool set_state_resp_bytes(char *state, char *resp_bytes, size_t buf_size) {
     for (unsigned int idx = 0; idx < MAX_STATES; idx++) {
         DEBUG_LOG ("[%s] '%s'\n", __FUNCTION__, state_list[idx].id);
         
         if (strncmp(state_list[idx].id, state, sizeof(state_list[idx].id)) == 0) {
             DEBUG_LOG ("[%s] Match '%s' '%s'\n", __FUNCTION__, state, state_list[idx].id);
-            memcpy(state_list[idx].resp_bytes, resp_bytes, MAX_PROTO_BYTES);
+            memcpy(state_list[idx].resp_bytes, resp_bytes, buf_size);
+            state_list[idx].resp_bytes_sz = buf_size;
 
             return true;
         }
@@ -100,9 +103,9 @@ bool set_state_resp_bytes(char *state, char *resp_bytes) {
 
 /* We determine the current fsm state by finding the first element in the 
  * state array that has is_current_state == true and the next element in the array has false.
- * @Return: true if state matches an entry.
+ * @Return: 0 or positive integer to indicate number of bytes returned, negative value indicates error.
  */
-bool get_current_state_resp_bytes_and_incr(unsigned char *buf, size_t buf_size) {
+int get_current_state_resp_bytes_and_incr(unsigned char *buf) {
     for (unsigned int idx = 0; idx < MAX_STATES; idx++) {
         DEBUG_LOG ("[%s] '%s'\n", __FUNCTION__, state_list[idx].id);
 
@@ -114,40 +117,40 @@ bool get_current_state_resp_bytes_and_incr(unsigned char *buf, size_t buf_size) 
                 if (state_list[look_ahead_idx].is_current_state == false) {
                     DEBUG_LOG ("[%s:%d] '%s'\n", __FUNCTION__, __LINE__, state_list[idx].id);
                     // Copy current state bytes into buffer
-                    get_state_resp_bytes(state_list[idx].id, buf, buf_size);
+                    get_state_resp_bytes(state_list[idx].id, buf);
                     // Increment next state by setting flag
                     state_list[look_ahead_idx].is_current_state = true;
         
-                    return true;
+                    return state_list[idx].resp_bytes_sz;
                 }
                 // Traverse to next state element
             }
             else { // Current state index hasn't had is_current_state flag set. Shouldn't happen
-                return false;
+                return -1;
             }
         }
     }
-    return false;
+    return -1;
 }
 
 /* 
- * @Return: true if state matches an entry.
+ * @Return: 0 or positive integer to indicate number of bytes returned, negative value indicates error.
  */
-bool get_state_resp_bytes(char *state, unsigned char *buf, size_t buf_size) {
+int get_state_resp_bytes(char *state, unsigned char *buf) {
     for (unsigned int idx = 0; idx < MAX_STATES; idx++) {
-        DEBUG_LOG ("[%s:%d] buf_size:%d, '%s'\n", __FUNCTION__, __LINE__, buf_size, state_list[idx].id);
+        DEBUG_LOG ("[%s:%d] '%s'\n", __FUNCTION__, __LINE__, state_list[idx].id);
         
         if (strncmp(state_list[idx].id, state, sizeof(state_list[idx].id)) == 0) {
             DEBUG_LOG ("[%s:%d] Match '%s' '%s' '%s'\n", __FUNCTION__, __LINE__, state, state_list[idx].id, state_list[idx].resp_bytes);
-            memcpy(buf, state_list[idx].resp_bytes, buf_size);
+            memcpy(buf, state_list[idx].resp_bytes, state_list[idx].resp_bytes_sz);
             // Set a flag that indicates we have read the resp bytes. This indicates callers
             // intent to send the fsm bytes and will not do so again.
             state_list[idx].is_processed = true;
 
-            return true;
+            return state_list[idx].resp_bytes_sz;
         }
     }
-    return false;
+    return -1;
 }
 
 /* Validate if parameter matches a predefined state name */

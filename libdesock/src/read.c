@@ -114,26 +114,28 @@ visible ssize_t read (int fd, void* buf, size_t count) {
                         * Store read buffer data into final state resp_bytes, replace buf bytes with 
                         * current state resp_bytes, and update offset.
                         */
-                        set_state_resp_bytes(desock_state, buf);
-                        get_current_state_resp_bytes_and_incr(buf, offset);
-                        // TODO: Update offset
+                        if (offset > 0 && offset < MAX_PROTO_BYTES) {
+                            set_state_resp_bytes(desock_state, buf, offset);
+                            offset = get_current_state_resp_bytes_and_incr(buf);
+                        }
                     }
                 }
                 else if (is_end_state(desock_state)) {
-                    get_state_resp_bytes(desock_state, buf, MAX_PROTO_BYTES);
-                    offset = 7;
+                    DEBUG_LOG ("[%s:%d]\n", __FUNCTION__, __LINE__);
+                    offset = get_state_resp_bytes(desock_state, buf);
                 }
                 else if (is_transition_state(desock_state)) {
                     DEBUG_LOG ("[%s:%d]\n", __FUNCTION__, __LINE__);
-                    get_current_state_resp_bytes_and_incr(buf, MAX_PROTO_BYTES);
-                    offset = 7;
+                    offset = get_current_state_resp_bytes_and_incr(buf);
                 }
                 else { // FSM states have completed. Just wait for data on stdin
+                    DEBUG_LOG ("[%s:%d]\n", __FUNCTION__, __LINE__);
                     offset += hook_input((char *) buf + offset, count - offset);
                 }
                 // END
             }
             else { // Caller doesn't want fsm fuzzing mode
+                DEBUG_LOG ("[%s:%d]\n", __FUNCTION__, __LINE__);
                 offset += hook_input((char *) buf + offset, count - offset);
             }
 
