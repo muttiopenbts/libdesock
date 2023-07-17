@@ -78,6 +78,9 @@ state_handler (void) {
     e.g. # clear; echo -e 'MYFUZZEDDATA' |LD_PRELOAD=libdesock.so ./echo_server-epoll 179
  */
 visible ssize_t read (int fd, void* buf, size_t count) {
+    // nul out buffer to ensure no tainted results.
+    memset(buf, '\0', count);
+
     DEBUG_LOG ("[%d:%s:%d] desock::read(%d, %p, %lu)\n", gettid (), __FUNCTION__, __LINE__, fd, buf, count);
 
     /* TODO: Disable reading from certain file descriptors that can interfere with tests. e.g. stdin.
@@ -104,8 +107,9 @@ visible ssize_t read (int fd, void* buf, size_t count) {
                 if (is_start_state()) {
                     if (is_end_state(desock_state)) {
                         // Only one state so keep buf and offset as is.
-                        DEBUG_LOG ("[%s:%d]\n", __FUNCTION__, __LINE__);
+                        DEBUG_LOG ("[%s:%d] buf: '%s'\n", __FUNCTION__, __LINE__, buf);
                         offset += hook_input((char *) buf + offset, count - offset);
+                        DEBUG_LOG ("[%s:%d] buf: '%s'\n", __FUNCTION__, __LINE__, buf);
                     }
                     else {
                         DEBUG_LOG ("[%s:%d]\n", __FUNCTION__, __LINE__);
@@ -139,7 +143,7 @@ visible ssize_t read (int fd, void* buf, size_t count) {
                 offset += hook_input((char *) buf + offset, count - offset);
             }
 
-            DEBUG_LOG(" buf: %s\n", buf);
+            DEBUG_LOG(" buf: '%s'\n", buf);
             DEBUG_LOG ("[%d:%s:%d] desock::read Desock hook_input offset: %d, errno: %d\n", gettid (), __FUNCTION__, __LINE__, offset, errno);
 
             if (errno) {

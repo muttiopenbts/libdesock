@@ -22,7 +22,7 @@
  * this function will return 0, no data.
  */
 ssize_t hook_input (char* buf, size_t size) {
-    DEBUG_LOG ("[%d] desock::hook_input(%p, %d)", gettid (), buf, size);
+    DEBUG_LOG ("[%s:%d] desock::hook_input(%p, %d)", __FUNCTION__, __LINE__, buf, size);
     int count = syscall_cp(SYS_read, STDIN_FILENO, buf, size);
 
     // Interactive session with desocket needs to be able to detect when client wishes to disconnect.
