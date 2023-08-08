@@ -7,12 +7,13 @@
 #include "desock.h"
 
 visible int close (int fd) {
+    DEBUG_LOG ("[%s:%d:%d] Start close(%d)", __FUNCTION__, __LINE__, gettid (), fd);
     int r = 0;
 
     if (VALID_FD (fd)) {
 #ifdef DEBUG
         if (fd_table[fd].desock) {
-            DEBUG_LOG ("[%d] desock::close(%d)", gettid (), fd);
+            DEBUG_LOG ("[%s:%d:%d] desock::close(%d)\n", __FUNCTION__, __LINE__, gettid (), fd);
         }
 #endif
 
@@ -44,7 +45,7 @@ visible int close (int fd) {
     if (fd > 1) {
         r = __syscall_cp (SYS_close, fd);
 
-        DEBUG_LOG ("[%d] desock::close(%d). Making real syscall. Result: %d\n", gettid (), fd, r);
+        DEBUG_LOG ("[%s:%d:%d] desock::close(%d). Making real syscall. Result: %d\n", __FUNCTION__, __LINE__, gettid (), fd, r);
 
         if (r == -EINTR)
             r = 0;

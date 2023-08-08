@@ -7,12 +7,20 @@
 #include "syscall.h"
 
 visible int setsockopt (int fd, int level, int optname, const void* optval, socklen_t optlen) {
-    if (VALID_FD (fd) && fd_table[fd].desock) {
-        DEBUG_LOG ("[%d] desock::setsockopt(%d, %d, %d, %p, %lu) = 0. Desock\n", gettid (), fd, level, optname, optval, optlen);
-        return 0;
-    } else {
-        int r = __socketcall (setsockopt, fd, level, optname, optval, optlen, 0);
-        DEBUG_LOG ("[%d] desock::setsockopt(%d, %d, %d, %p, %lu) = %d No desock\n", gettid (), fd, level, optname, optval, optlen, r);
-        return __syscall_ret (r);
+    DEBUG_LOG ("[%s:%d:%d] (%d, %d, %d, %p, %lu)\n", __FUNCTION__, __LINE__, gettid (), fd, level, optname, optval, optlen);
+    int result = 0;
+
+    if (VALID_FD(fd) && fd_table[fd].desock)
+    {
+        DEBUG_LOG ("[%s:%d:%d] result: %d. Desock\n", __FUNCTION__, __LINE__, gettid (), result);
+        result = 0;
     }
+    else
+    {
+        result = __socketcall (setsockopt, fd, level, optname, optval, optlen, 0);
+        result =  __syscall_ret (result);
+        DEBUG_LOG ("[%s:%d:%d] result: %d. Desock\n", __FUNCTION__, __LINE__, gettid (), result);
+    }
+
+    return result;
 }

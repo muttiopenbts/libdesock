@@ -9,6 +9,7 @@
 #include <netinet/in.h>
 #include <sys/un.h>
 #include <arpa/inet.h>
+#include <stdbool.h>
 
 // Check that we are desocketing at least one of client or server
 #ifndef DESOCK_BIND
@@ -48,6 +49,7 @@ void fill_remote_sockaddr (int, struct sockaddr*, socklen_t*);
 void _error (char*, ...);
 unsigned int is_valid_ip_address (char *);
 char* get_ip_str(const struct sockaddr*, char*, size_t);
+extern void get_hex_str(char*, char*, size_t);
 
 struct fd_entry {
     /* Optional Internet address. */

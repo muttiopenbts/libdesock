@@ -98,30 +98,29 @@ static int internal_accept (int fd, struct sockaddr* restrict addr, socklen_t * 
         Desocked accept() will return a fake fd. Caller will call read() and hook will write whatever
         is read from stdin.
      */
-    DEBUG_LOG ("[%d] desock::internal_accept(%d, %p, %p, %d) fam: %d\n", gettid (), fd, addr, len, flag, fd_table[fd].domain);
+    DEBUG_LOG ("[%s:%d:%d] (%d, %p, %p, %d) fam: %d\n", __FUNCTION__, __LINE__, gettid (), fd, addr, len, flag, fd_table[fd].domain);
 
     get_desocks();
 
     if (VALID_FD(fd) && fd_table[fd].desock && DESOCK_FD_V4(fd))
     {
-        DEBUG_LOG ("[%d] desock::internal_accept(%d, %p, %p, %d) Desocketing\n", gettid (), fd, addr, len, flag);
-        DEBUG_LOG ("[%d] desock::internal_accept accept_block: %d\n", gettid (), accept_block);
+        DEBUG_LOG ("[%s:%d:%d] Desocketing\n", __FUNCTION__, __LINE__, gettid ());
 
         if (accept_block) {
-            DEBUG_LOG ("[%d] desock::internal_accept going to block until close().\n", gettid ());
+            DEBUG_LOG ("[%s:%d:%d] going to block until close(). Desocketing\n", __FUNCTION__, __LINE__, gettid ());
 
             int sem_value = 0;
             if (sem_getvalue(&sem, &sem_value) == 0) {
-                DEBUG_LOG("[%d] desock::internal_accept calling sem_wait(%p), sem_value: %d.\n", gettid(), sem, sem_value);
+                DEBUG_LOG ("[%s:%d:%d] calling sem_wait(%p), sem_value: %d\n", __FUNCTION__, __LINE__, gettid (), sem, sem_value);
             } else {
-                DEBUG_LOG("[%d] desock::internal_accept calling sem_wait(%p) sem_getvalue() failed\n", gettid(), sem);
+                DEBUG_LOG ("[%s:%d:%d] calling sem_wait(%p) sem_getvalue() failed\n", __FUNCTION__, __LINE__, gettid (), sem);
             }
 
             sem_wait (&sem);
         }
         else
         {
-            DEBUG_LOG ("[%d] desock::internal_accept not blocked but setting block flag for next check.\n", gettid ());
+            DEBUG_LOG ("[%s:%d:%d] not blocked but setting block flag for next check\n", __FUNCTION__, __LINE__, gettid ());
             accept_block = 1;
         }
 
@@ -153,7 +152,7 @@ static int internal_accept (int fd, struct sockaddr* restrict addr, socklen_t * 
     }
     else
     {
-        DEBUG_LOG ("[%d] desock::internal_accept(%d, %p, %p, %d) No desocketing, fam: %d\n", gettid (), fd, addr, len, flag, fd_table[fd].domain);
+        DEBUG_LOG ("[%s:%d:%d] No desocketing\n", __FUNCTION__, __LINE__, gettid ());
         return socketcall_cp (accept4, fd, addr, len, flag, 0, 0);
     }
 }

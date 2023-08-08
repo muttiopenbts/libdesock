@@ -54,6 +54,7 @@ ninja
 This creates a shared library `./build/libdesock.so` and a static library `./build/libdesock.a`.
 
 ## Usage
+### Loading libdesock
 *Required  
 Prepend
 ```sh
@@ -64,26 +65,37 @@ set the environment variable
 ```sh
 AFL_PRELOAD=libdesock.so
 ```
-when using AFL++.  
+### Specify which port to desocket
+When using AFL++.  
 
 The target process may have several listening ports. Specify the individual server port to desock and ignore the rest.
+#### Specify source port to desocket
 Specify the interest port using the environment variable 
 ```sh
 export DESOCK_PORT_LOCAL=666
 ```
+#### Specify remote port
 Specify the client's socket port number using the environment variable 
 ```sh
 export DESOCK_PORT_REMOTE=4444
 ```
+### Specify source IP address
 Specify the v4 IP address to be associated with the server's socket.
 ```sh
 export DESOCK_LOCALIPV4=1.1.1.4 
 ```
+### Specify destination IP address
 Specify the v4 IP address to be associated with the client's socket.
 ```sh
 export DESOCK_REMOTEIPV4=1.1.2.2
 ```
-Example test run
+### Finite State Machines
+```sh
+export DESOCK_STATE=<ID>
+```
+ID must match the name associateed with the proto_state_def struct defined in fsm.c.  
+TODO: More documentation to follow.
+### Example test run
 ```sh
 echo -e 'MYFUZZEDDATA' | DESOCK_PORT_REMOTE=4444 DESOCK_PORT_LOCAL=666 DESOCK_LOCALIPV4=1.1.1.4 DESOCK_REMOTEIPV4=1.1.2.2 LD_PRELOAD=libdesock.so ./test-server 666
 ```

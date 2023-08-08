@@ -46,7 +46,7 @@ sources = [
     'libdesock/src/listen.c',
     'libdesock/src/peekbuffer.c',
     'libdesock/src/poll.c',
-    'libdesock/src/proto.c',
+    'libdesock/src/fsm.c',
     'libdesock/src/read.c',
     'libdesock/src/select.c',
     'libdesock/src/sendfile.c',
@@ -66,7 +66,7 @@ shared_library('desock',
     sources : sources,
     include_directories : include_directories,
     c_args : args,
-    link_args : '-Wl,-e,desock_main',
+    link_args : '-Wl,-ldl,-lrt,-e,desock_main',
     install : false,
     dependencies : [
         dependency('threads')

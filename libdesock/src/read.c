@@ -10,14 +10,94 @@
 #include "desock.h"
 #include "peekbuffer.h"
 #include "hooks.h"
-#include "proto.h"
+#include "fsm.h"
 
 #include <stdio.h>
 #include <sys/mman.h>
 #include <fcntl.h>
 
+#define SLEEP_TIMER 0
+
+/* Attempt to implement stateful fuzzing.
+ */
+static ssize_t
+statefull_read(char *buf, size_t count) {
+#ifdef DEBUG
+        sleep(SLEEP_TIMER);
+#endif
+    int offset = 0;
+
+    if (desock_state != NULL) {
+        DEBUG_LOG ("[%s:%d] Start count: %d\n", __FUNCTION__, __LINE__, count);
+        if (is_start_state()) {
+            if (is_end_state(desock_state)) {
+                // Only one state so keep buf and offset as is.
+                DEBUG_LOG ("[%s:%d] buf: '%s', count: %d\n", __FUNCTION__, __LINE__, buf, count);
+                offset += hook_input((char *) buf, count);
+                DEBUG_LOG ("[%s:%d] buf: '%s', count: %d\n", __FUNCTION__, __LINE__, buf, count);
+            }
+            else {
+                DEBUG_LOG ("[%s:%d] count: %d\n", __FUNCTION__, __LINE__, count);
+                /* First state.
+                 * On this call, suck the max amount of bytes from stdin and store into user defined end state.
+                 */
+                if (is_end_processed(desock_state)) {
+                    if (count > 0 && count <= MAX_PROTO_BYTES) {
+                        /* Caller is expecting hardcoded bytes from stored state, and we must return 
+                        * num of bytes specified by caller.
+                        */
+                        offset = get_current_state_resp_bytes_and_incr(buf, count);
+                        DEBUG_LOG ("[%s:%d] offset: %d, count: %d\n", __FUNCTION__, __LINE__, offset, count);
+                    }
+                }
+                else{ // More bytes remaining start state's resp bytes
+                    offset += hook_input((char *) buf, MAX_PROTO_BYTES);
+                    DEBUG_LOG ("[%s:%d] offset: %d\n", __FUNCTION__, __LINE__, offset);
+                    /* We're at the first state and data arrived. Need to store these bytes for later.
+                    * Store read buffer data into final state resp_bytes, replace buf bytes with 
+                    * current state resp_bytes, and update offset.
+                    */
+                    if (count > 0 && count <= MAX_PROTO_BYTES) {
+                        set_state_resp_bytes(desock_state, buf, offset);
+                        /* Caller is expecting hardcoded bytes from stored state, and we must return 
+                        * num of bytes specified by caller.
+                        */
+                        offset = get_current_state_resp_bytes_and_incr(buf, count);
+                        DEBUG_LOG ("[%s:%d] offset: %d, count: %d\n", __FUNCTION__, __LINE__, offset, count);
+                    }
+                }
+            }
+        }
+        else if (is_end_state(desock_state)) {
+            offset = get_state_resp_bytes(desock_state, buf, count);
+            DEBUG_LOG ("[%s:%d] offset: %d, count: %d\n", __FUNCTION__, __LINE__, offset, count);
+        }
+        else if (is_transition_state(desock_state)) {
+            offset = get_current_state_resp_bytes_and_incr(buf, count);
+            DEBUG_LOG ("[%s:%d] offset: %d, count: %d\n", __FUNCTION__, __LINE__, offset, count);
+        }
+        else { // FSM states have completed. Just wait for data on stdin
+            offset += hook_input((char *) buf, count);
+            DEBUG_LOG ("[%s:%d] offset: %d, count: %d\n", __FUNCTION__, __LINE__, offset, count);
+        }
+        // END
+    }
+    else { // Caller doesn't want fsm fuzzing mode
+        offset += hook_input((char *) buf, count);
+        DEBUG_LOG ("[%s:%d] offset: %d, count: %d\n", __FUNCTION__, __LINE__, offset, count);
+    }
+
+    uint hex_str_sz = (offset * 2) + 1;
+    char hex_str[hex_str_sz];
+    get_hex_str(hex_str, buf, hex_str_sz);
+
+    DEBUG_LOG ("[%s:%d] End offset: %d, buf: %s, errno: %d\n", __FUNCTION__, __LINE__, offset, hex_str, errno);
+
+    return offset;
+}
+
 static long internal_readv (struct iovec* iov, int iov_count, int* full, int peek, int offset) {
-    DEBUG_LOG ("[%d] desock::internal_readv iov: %p, iov_count: %d.\n", gettid (), iov, iov_count);
+    DEBUG_LOG ("[%s:%d] Start iov: %p, iov_count: %d.\n", __FUNCTION__, gettid (), iov, iov_count);
     int read_total = 0;
 
     if (full) {
@@ -37,10 +117,12 @@ static long internal_readv (struct iovec* iov, int iov_count, int* full, int pee
             }
 
             if (read_num < iov[i].iov_len) {
+                DEBUG_LOG ("[%s:%d] read: %d\n", __FUNCTION__, __LINE__, iov[i].iov_len - read_num);
                 errno = 0;
-                read_num += hook_input((char *) iov[i].iov_base + read_num, iov[i].iov_len - read_num);
+                //read_num += hook_input((char *) iov[i].iov_base + read_num, iov[i].iov_len - read_num);
+                read_num += statefull_read((char *) iov[i].iov_base + read_num, iov[i].iov_len - read_num);
 
-                DEBUG_LOG ("[%d] desock::internal_readv i: %d, read_num: %d\n", gettid (), i, read_num);
+                DEBUG_LOG ("[%s:%d] i: %d, read_num: %d\n", __FUNCTION__, gettid (), i, read_num);
 
                 if (errno) {
                     DEBUG_LOG ("[%d] desock::internal_readv returning errno: %d\n", gettid (), errno);
@@ -60,7 +142,7 @@ static long internal_readv (struct iovec* iov, int iov_count, int* full, int pee
         }
     }
 
-    DEBUG_LOG ("[%d] desock::internal_readv read_total: %d\n", gettid (), read_total);
+    DEBUG_LOG ("[%s:%d] read_total: %d\n", __FUNCTION__, gettid (), read_total);
     return read_total;
 }
 
@@ -81,13 +163,13 @@ visible ssize_t read (int fd, void* buf, size_t count) {
     // nul out buffer to ensure no tainted results.
     memset(buf, '\0', count);
 
-    DEBUG_LOG ("[%d:%s:%d] desock::read(%d, %p, %lu)\n", gettid (), __FUNCTION__, __LINE__, fd, buf, count);
+    DEBUG_LOG ("[%s:%d:%d] Start read(%d, %p, %lu)\n", __FUNCTION__, __LINE__, gettid (), fd, buf, count);
 
     /* TODO: Disable reading from certain file descriptors that can interfere with tests. e.g. stdin.
      * Make this user configurable.
      */ 
     if (VALID_FD (fd) && fd_table[fd].desock) {
-        DEBUG_LOG ("[%d] desock::read(%d, %p, %lu) Desock\n", gettid (), fd, buf, count);
+        DEBUG_LOG ("[%d] read(%d, %p, %lu) Desock\n", gettid (), fd, buf, count);
 
         int offset = 0;
 
@@ -95,76 +177,32 @@ visible ssize_t read (int fd, void* buf, size_t count) {
             offset = peekbuffer_mv (buf, count);
         }
 
-        DEBUG_LOG ("[%d:%s:%d] desock::read offset: %d\n", gettid (), __FUNCTION__, __LINE__, offset);
+        DEBUG_LOG ("[%d:%s:%d] read offset: %d\n", gettid (), __FUNCTION__, __LINE__, offset);
 
         if (offset < count) {
             errno = 0;
 
-            /* Attempt to implement sateful fuzzing
-            */
-            if (desock_state != NULL) {
-                DEBUG_LOG ("[%s:%d]\n", __FUNCTION__, __LINE__);
-                if (is_start_state()) {
-                    if (is_end_state(desock_state)) {
-                        // Only one state so keep buf and offset as is.
-                        DEBUG_LOG ("[%s:%d] buf: '%s'\n", __FUNCTION__, __LINE__, buf);
-                        offset += hook_input((char *) buf + offset, count - offset);
-                        DEBUG_LOG ("[%s:%d] buf: '%s'\n", __FUNCTION__, __LINE__, buf);
-                    }
-                    else {
-                        DEBUG_LOG ("[%s:%d]\n", __FUNCTION__, __LINE__);
-                        offset += hook_input((char *) buf + offset, count - offset);
-                        /* We're at the first state and data arrived. Need to store these bytes for later.
-                        * Store read buffer data into final state resp_bytes, replace buf bytes with 
-                        * current state resp_bytes, and update offset.
-                        */
-                        if (offset > 0 && offset < MAX_PROTO_BYTES) {
-                            set_state_resp_bytes(desock_state, buf, offset);
-                            offset = get_current_state_resp_bytes_and_incr(buf);
-                        }
-                    }
-                }
-                else if (is_end_state(desock_state)) {
-                    DEBUG_LOG ("[%s:%d]\n", __FUNCTION__, __LINE__);
-                    offset = get_state_resp_bytes(desock_state, buf);
-                }
-                else if (is_transition_state(desock_state)) {
-                    DEBUG_LOG ("[%s:%d]\n", __FUNCTION__, __LINE__);
-                    offset = get_current_state_resp_bytes_and_incr(buf);
-                }
-                else { // FSM states have completed. Just wait for data on stdin
-                    DEBUG_LOG ("[%s:%d]\n", __FUNCTION__, __LINE__);
-                    offset += hook_input((char *) buf + offset, count - offset);
-                }
-                // END
-            }
-            else { // Caller doesn't want fsm fuzzing mode
-                DEBUG_LOG ("[%s:%d]\n", __FUNCTION__, __LINE__);
-                offset += hook_input((char *) buf + offset, count - offset);
-            }
+            offset += statefull_read((char *)buf + offset, count - offset);
 
             DEBUG_LOG(" buf: '%s'\n", buf);
-            DEBUG_LOG ("[%d:%s:%d] desock::read Desock hook_input offset: %d, errno: %d\n", gettid (), __FUNCTION__, __LINE__, offset, errno);
+            DEBUG_LOG ("[%d:%s:%d] read Desock hook_input offset: %d, errno: %d\n", gettid (), __FUNCTION__, __LINE__, offset, errno);
 
             if (errno) {
                 DEBUG_LOG (" = -1\n");
                 return -1;
             }
         }
-#ifdef DEBUG
-        sleep(2);
-#endif
-        DEBUG_LOG(" offset: %d\n", offset);
+        DEBUG_LOG ("[%s:%d] End offset: %d Desocked\n", __FUNCTION__, __LINE__, offset);
 
         return offset;
     } 
     else if (fd == STDIN_FILENO) { // TODO: Make this user configurable.
-        DEBUG_LOG ("[%d] desock::read matched fd: %d Desocked\n", gettid (), fd);
+        DEBUG_LOG ("[%s:%d] End read matched fd: %d Desocked\n", __FUNCTION__, __LINE__, fd);
         return 0;
     }
     else
     {
-        DEBUG_LOG ("[%d] desock::read(%d, %p, %lu) No desock\n", gettid (), fd, buf, count);
+        DEBUG_LOG ("[%s:%d] End read(%d, %p, %lu) No desock\n", __FUNCTION__, __LINE__, fd, buf, count);
         return syscall_cp (SYS_read, fd, buf, count);
     }
 }
@@ -318,14 +356,14 @@ visible int recvmmsg (int fd, struct mmsghdr* msgvec, unsigned int vlen, int fla
 /* @return  Number of bytes read or negative number for error.
  */
 visible ssize_t readv (int fd, struct iovec* iov, int count) {
-    DEBUG_LOG ("[%d] desock::readv(%d, %p, %d)\n", gettid (), fd, iov, count);
+    DEBUG_LOG ("[%s:%d] Start readv(%d, %p, %d)\n", __FUNCTION__, gettid (), fd, iov, count);
 
     if (VALID_FD (fd) && fd_table[fd].desock) {
         int read = internal_readv (iov, count, NULL, 0, 0);
-        DEBUG_LOG ("[%d] desock::readv(%d, %p, %d) = %d Desocked\n", gettid (), fd, iov, count, read);
+        DEBUG_LOG ("[%s:%d] END readv(%d, %p, %d) = %d Desocked\n", __FUNCTION__, gettid (), fd, iov, count, read);
         return read;
     } else {
-        DEBUG_LOG ("[%d] desock::readv(%d, %p, %d)\n", gettid (), fd, iov, count);
+        DEBUG_LOG ("[%s:%d] END readv(%d, %p, %d) = %d Desocked\n", __FUNCTION__, gettid (), fd, iov, count, read);
         return syscall_cp (SYS_readv, fd, iov, count);
     }
 }

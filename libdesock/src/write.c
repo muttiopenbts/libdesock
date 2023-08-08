@@ -7,9 +7,10 @@
 #include "syscall.h"
 #include "desock.h"
 #include "hooks.h"
+#include "fsm.h"
 
 static long internal_writev (const struct iovec* iov, int len) {
-    DEBUG_LOG ("[%d] desock::internal_writev.\n", gettid ());
+    DEBUG_LOG ("[%s:%d:%d] len: %d\n", __FUNCTION__, __LINE__, gettid (), len);
     int written = 0;
 
     for (int i = 0; i < len; ++i) {
@@ -31,16 +32,22 @@ static long internal_writev (const struct iovec* iov, int len) {
 }
 
 visible ssize_t write (int fd, const void* buf, size_t count) {
-    DEBUG_LOG ("[%d] desock::write(%d, %p, %lu).\n", gettid (), fd, buf, count);
-    
-    if (VALID_FD (fd) && fd_table[fd].desock) {
-        int r = hook_output(buf, count);
-        DEBUG_LOG ("[%d] desock::write(%d, %p, %lu) = %d. Desock\n", gettid (), fd, buf, count, r);
-        return r;
-    } else {
-        DEBUG_LOG ("[%d] desock::write(%d, %p, %lu)\n", gettid (), fd, buf, count);
-        return syscall_cp (SYS_write, fd, buf, count);
+    DEBUG_LOG ("[%s:%d:%d] (%d, %p, %lu).\n", __FUNCTION__, __LINE__, gettid (), fd, buf, count);
+    int result = 0;
+
+    if (VALID_FD(fd) && fd_table[fd].desock)
+    {
+        DEBUG_LOG ("[%s:%d:%d] Desocket\n", __FUNCTION__, __LINE__, gettid ());
+        result = hook_output(buf, count);
     }
+    else
+    {
+        DEBUG_LOG ("[%s:%d:%d]\n", __FUNCTION__, __LINE__, gettid ());
+        result = syscall_cp (SYS_write, fd, buf, count);
+    }
+
+    DEBUG_LOG ("[%s:%d:%d] End result: %d.\n", __FUNCTION__, __LINE__, gettid (), result);
+    return result;
 }
 
 visible ssize_t send (int fd, const void* buf, size_t len, int flags) {
@@ -96,14 +103,25 @@ visible int sendmmsg (int fd, struct mmsghdr* msgvec, unsigned int vlen, int fla
     }
 }
 
-visible ssize_t writev (int fd, const struct iovec* iov, int count) {
-    DEBUG_LOG ("[%d] desock::writev fd: %d", gettid (), fd);
+/* @param[1]    The file descriptor to write to.
+ * @param[2]    An array of `iovec` structures.
+ * @param[3]    The number of `iovec` structures in the array.
+ */
+visible ssize_t writev (int fd, const struct iovec* iov, int iovcnt) {
+    DEBUG_LOG ("[%s:%d:%d] Start fd: %d\n", __FUNCTION__, __LINE__, gettid (), fd);
+    int result = 0;
 
     if (VALID_FD (fd) && fd_table[fd].desock) {
-        int r = internal_writev (iov, count);
-        DEBUG_LOG ("[%d] desock::writev(%d, %p, %d) = %d. Desocked\n", gettid (), fd, iov, count, r);
-        return r;
+        result = internal_writev(iov, iovcnt);
+        DEBUG_LOG ("[%s:%d:%d] writev(%d, %p, %d) = %d. Desocked\n", __FUNCTION__, __LINE__, gettid (), fd, iov, iovcnt, result);
     } else {
-        return syscall_cp (SYS_writev, fd, iov, count);
+        result = syscall_cp (SYS_writev, fd, iov, iovcnt);
     }
+
+#ifdef DEBUG
+    // Help with troubleshooting.
+    DEBUG_LOG ("[%s:%d:%d] DEBUG fd: %d\n", __FUNCTION__, __LINE__, gettid (), fd);
+#endif
+
+    return result;
 }
