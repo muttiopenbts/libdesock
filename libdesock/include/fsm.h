@@ -17,7 +17,8 @@
 #define MAX_STATES 6
 #define MAX_PROTO_BYTES 4096
 
-typedef struct proto_state_def {
+typedef struct proto_state_def
+{
     /* Unique string to identify the state */
     char id[MAX_STATE_ID];
 
@@ -29,7 +30,7 @@ typedef struct proto_state_def {
 
     /* Previous state pointer */
     struct proto_state_def *prev;
-   
+
     /* bool Flag that fsm state related bytes have been seen in socket call.
      * e.g. server has replied to a client/state message. Ready now for client to send bytes from read().
      */
@@ -44,11 +45,11 @@ typedef struct proto_state_def {
     unsigned char resp_bytes[MAX_PROTO_BYTES];
     /* Number of actual used bytes. */
     unsigned int resp_bytes_sz;
-
 } state_def;
 
 extern state_def state_list[MAX_STATES];
 extern char desock_state[MAX_STATE_ID];
+extern bool fsm_completed;
 
 extern state_def *state_def_new();
 extern bool is_valid_state(char *state);
@@ -65,5 +66,6 @@ extern bool is_processed(char *state);
 extern bool is_end_processed(char *state);
 extern bool is_start_processed();
 ssize_t get_current_state_idx();
+extern bool is_fsm_end();
 
 #endif /* FSM_H */

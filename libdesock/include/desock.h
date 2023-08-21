@@ -31,27 +31,30 @@ If conns >= MAX_CONNS accept() will block
 #define MAX_IPV4_LEN 15
 
 extern sem_t sem;
+extern sem_t sem_fsm;
 extern unsigned long desock_port_local;
 extern unsigned long desock_port_remote;
 extern char desock_localipv4[MAX_IPV4_LEN + 1];
 extern char desock_remoteipv4[MAX_IPV4_LEN + 1];
 
 #ifdef DEBUG
-void _debug (char*, ...);
+void _debug(char *, ...);
 #define DEBUG_LOG(...) _debug(__VA_ARGS__);
 #else
 #define DEBUG_LOG(...)
 #endif
 
-void fill_sockaddr (int, struct sockaddr*, socklen_t*);
-void fill_local_sockaddr (int, struct sockaddr*, socklen_t*);
-void fill_remote_sockaddr (int, struct sockaddr*, socklen_t*);
-void _error (char*, ...);
-unsigned int is_valid_ip_address (char *);
-char* get_ip_str(const struct sockaddr*, char*, size_t);
-extern void get_hex_str(char*, char*, size_t);
+void fill_sockaddr(int, struct sockaddr *, socklen_t *);
+void fill_local_sockaddr(int, struct sockaddr *, socklen_t *);
+void fill_remote_sockaddr(int, struct sockaddr *, socklen_t *);
+void _error(char *, ...);
+unsigned int is_valid_ip_address(char *);
+char *get_ip_str(const struct sockaddr *, char *, size_t);
+extern void get_hex_str(char *, char *, size_t);
+int msleep(long);
 
-struct fd_entry {
+struct fd_entry
+{
     /* Optional Internet address. */
     uint32_t address;
 
@@ -60,13 +63,13 @@ struct fd_entry {
 
     /* information passed to socket() */
     int domain;
-    
+
     /* flag whether to desock this fd */
     int desock;
-    
+
     /* flag whether this is the server socket */
     int listening;
-    
+
     /* epoll stuff */
     int epfd;
     struct epoll_event ep_event;
@@ -102,7 +105,8 @@ extern const struct sockaddr_un stub_sockaddr_un;
 #ifdef DEBUG
 void clear_fd_table_entry(int);
 #else
-inline void clear_fd_table_entry (int idx) {
+inline void clear_fd_table_entry(int idx)
+{
     fd_table[idx].port = 0;
     fd_table[idx].address = 0;
     fd_table[idx].epfd = -1;
@@ -114,7 +118,7 @@ inline void clear_fd_table_entry (int idx) {
 
 #define MIN(x, y) ((x) < (y) ? (x) : (y))
 
-#define visible __attribute__ ((visibility ("default")))
+#define visible __attribute__((visibility("default")))
 
 #endif /* DESOCK_H */
 

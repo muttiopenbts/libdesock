@@ -26,82 +26,6 @@
 #include <stdbool.h>
 #include "fsm.h"
 
-/* Attempt to implement stateful fuzzing.
- * Use writing to sockets as a means to help transition a state machine.
- */
-static ssize_t
-statefull_write(char *buf, size_t count) {
-    int offset = 0;
-
-    if (desock_state != NULL) {
-        DEBUG_LOG ("[%s:%d] Start count: %d\n", __FUNCTION__, __LINE__, count);
-        if (is_start_state()) {
-            if (is_end_state(desock_state)) {
-                // Only one state so keep buf and offset as is.
-                DEBUG_LOG ("[%s:%d] buf: '%s', count: %d\n", __FUNCTION__, __LINE__, buf, count);
-                offset += hook_input((char *) buf, count);
-                DEBUG_LOG ("[%s:%d] buf: '%s', count: %d\n", __FUNCTION__, __LINE__, buf, count);
-            }
-            else {
-                DEBUG_LOG ("[%s:%d] count: %d\n", __FUNCTION__, __LINE__, count);
-                /* First state.
-                 * On this call, suck the max amount of bytes from stdin and store into user defined end state.
-                 */
-                if (is_end_processed(desock_state)) {
-                    if (count > 0 && count <= MAX_PROTO_BYTES) {
-                        /* Caller is expecting hardcoded bytes from stored state, and we must return 
-                        * num of bytes specified by caller.
-                        */
-                        offset = get_current_state_resp_bytes_and_incr(buf, count);
-                        DEBUG_LOG ("[%s:%d] offset: %d, count: %d\n", __FUNCTION__, __LINE__, offset, count);
-                    }
-                }
-                else{ // More bytes remaining start state's resp bytes
-                    offset += hook_input((char *) buf, MAX_PROTO_BYTES);
-                    DEBUG_LOG ("[%s:%d] offset: %d\n", __FUNCTION__, __LINE__, offset);
-                    /* We're at the first state and data arrived. Need to store these bytes for later.
-                    * Store read buffer data into final state resp_bytes, replace buf bytes with 
-                    * current state resp_bytes, and update offset.
-                    */
-                    if (count > 0 && count <= MAX_PROTO_BYTES) {
-                        set_state_resp_bytes(desock_state, buf, offset);
-                        /* Caller is expecting hardcoded bytes from stored state, and we must return 
-                        * num of bytes specified by caller.
-                        */
-                        offset = get_current_state_resp_bytes_and_incr(buf, count);
-                        DEBUG_LOG ("[%s:%d] offset: %d, count: %d\n", __FUNCTION__, __LINE__, offset, count);
-                    }
-                }
-            }
-        }
-        else if (is_end_state(desock_state)) {
-            offset = get_state_resp_bytes(desock_state, buf, count);
-            DEBUG_LOG ("[%s:%d] offset: %d, count: %d\n", __FUNCTION__, __LINE__, offset, count);
-        }
-        else if (is_transition_state(desock_state)) {
-            offset = get_current_state_resp_bytes_and_incr(buf, count);
-            DEBUG_LOG ("[%s:%d] offset: %d, count: %d\n", __FUNCTION__, __LINE__, offset, count);
-        }
-        else { // FSM states have completed. Just wait for data on stdin
-            offset += hook_input((char *) buf, count);
-            DEBUG_LOG ("[%s:%d] offset: %d, count: %d\n", __FUNCTION__, __LINE__, offset, count);
-        }
-        // END
-    }
-    else { // Caller doesn't want fsm fuzzing mode
-        offset += hook_input((char *) buf, count);
-        DEBUG_LOG ("[%s:%d] offset: %d, count: %d\n", __FUNCTION__, __LINE__, offset, count);
-    }
-
-    uint hex_str_sz = (offset * 2) + 1;
-    char hex_str[hex_str_sz];
-    get_hex_str(hex_str, buf, hex_str_sz);
-
-    DEBUG_LOG ("[%s:%d] End offset: %d, buf: %s, errno: %d\n", __FUNCTION__, __LINE__, offset, hex_str, errno);
-
-    return offset;
-}
-
 pid_t spc_fork(void);
 
 typedef struct
@@ -238,15 +162,22 @@ pid_t spc_fork(void)
  */
 ssize_t hook_input(char *buf, size_t size)
 {
-    DEBUG_LOG("[%s:%d] desock::hook_input(%p, %d)\n", __FUNCTION__, __LINE__, buf, size);
+    DEBUG_LOG("[%s:%d:%d] Start (%p, %d)\n", __FUNCTION__, __LINE__, gettid(), buf, size);
     int count = syscall_cp(SYS_read, STDIN_FILENO, buf, size);
 
     // Interactive session with desocket needs to be able to detect when client wishes to disconnect.
     if (buf[0] == 10 || buf[0] == 13) // NLF, NL, CR
     {
-        return 0; // Caller should realize there is no data and likely close() fd.
+        count = 0; // Caller should realize there is no data and likely close() fd.
     }
 
+    uint hex_str_sz = (count * 2) + 1;
+    char hex_str[hex_str_sz];
+    get_hex_str(hex_str, buf, hex_str_sz);
+
+    DEBUG_LOG("[%s:%d] buf: %s, size: %d\n", __FUNCTION__, __LINE__, hex_str, count);
+
+    DEBUG_LOG("[%s:%d:%d] End count: %d\n", __FUNCTION__, __LINE__, gettid(), count);
     return count;
 }
 
@@ -259,10 +190,10 @@ ssize_t hook_output(char *buf, size_t size)
     char hex_str[hex_str_sz];
     get_hex_str(hex_str, buf, hex_str_sz);
 
-    DEBUG_LOG("[%s:%d] buf: %s, size: %d\n", __FUNCTION__, __LINE__, hex_str, size);
+    DEBUG_LOG("[%s:%d:%d] buf: %s, size: %d\n", __FUNCTION__, __LINE__, gettid(), hex_str, size);
     // If caller is sending data to socket fd, determine if state machine should transition
-    set_seen_state_transition(buf, size);
-    
+    set_seen_state_transition((unsigned char *)buf, size);
+
     return (ssize_t)size;
 }
 
@@ -298,11 +229,13 @@ static void emit_jump_to_address(uint64_t address, uint64_t jump_destination)
     }
 }
 
-void end_patcher() {
+void end_patcher()
+{
     printf("END PATCHER\n");
 }
 
-void patcher(void) {
+void patcher(void)
+{
     DEBUG_LOG("[%s:%d] Patcher for fake function hook.\n", __FUNCTION__, __LINE__);
 
     uint64_t target;
@@ -321,11 +254,11 @@ void patcher(void) {
 /* Take from https://reverseengineering.stackexchange.com/questions/20395/how-do-i-go-about-overriding-a-function-internally-defined-in-a-binary-on-linux
  * TODO: Make hooked functionality user configurable during run time via config.
  * TODO: Replace hardcoded hooked function address.
- */
-__attribute__((constructor)) 
+__attribute__((constructor))
 void autorun(void) {
     // Disabled for now. TODO: Implement pid file creation to indicate run state
     if (false) {
         patcher();
     }
 }
+ */

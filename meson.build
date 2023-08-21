@@ -66,20 +66,10 @@ shared_library('desock',
     sources : sources,
     include_directories : include_directories,
     c_args : args,
-    link_args : '-Wl,-ldl,-lrt,-e,desock_main',
+    link_args : '-Wl,-lpthread,-ldl,-lrt,-e,desock_main',
     install : false,
     dependencies : [
         dependency('threads')
     ]
 )
 
-static_library('desock', 
-    sources : sources,
-    include_directories : include_directories,
-    c_args : args,
-    link_args : '-Wl,-e,desock_main',
-    install : false,
-    dependencies : [
-        dependency('threads')
-    ]
-)

@@ -18,6 +18,7 @@
 #include "fsm.h"
 #include <fcntl.h>
 #include <sys/mman.h>
+#include <time.h>
 
 // TODO: Populate values from env variables
 const struct sockaddr_in stub_sockaddr_in = {
@@ -61,6 +62,13 @@ struct fd_entry fd_table[FD_TABLE_SIZE];
  */
 sem_t sem;
 
+/* Semaphore to block calls to read from de-socketed file descriptors in multi-threaded
+   applications.
+   Use to block/wait() on a read() from a fsm response that's dependent on a peer sending
+   some bytes that causes the fsm to transition to another state.
+ */
+sem_t sem_fsm;
+
 /* Whitelist for ports that should only be desocketed.
  * Configured via environment variable DESOCK_PORT_LOCAL
  */
@@ -81,15 +89,40 @@ char desock_localipv4[MAX_IPV4_LEN + 1];
  */
 char desock_remoteipv4[MAX_IPV4_LEN + 1];
 
+/* msleep(): Sleep for the requested number of milliseconds.
+ * Taken from https://stackoverflow.com/questions/1157209/is-there-an-alternative-sleep-function-in-c-to-milliseconds
+ */
+int msleep(long msec)
+{
+    struct timespec ts;
+    int res;
+
+    if (msec < 0)
+    {
+        errno = EINVAL;
+        return -1;
+    }
+
+    ts.tv_sec = msec / 1000;
+    ts.tv_nsec = (msec % 1000) * 1000000;
+
+    do
+    {
+        res = nanosleep(&ts, &ts);
+    } while (res && errno == EINTR);
+
+    return res;
+}
+
 /* Convert bytes from char array to string.
  * @param   dst array where result of convertion will be stored. dst size must be double size of src + 1 byte.
  * @param   size must be double size of src + 1 byte larger to accomodate nul termination.
  * e.g. src[0] = \xff, src[1] = \x41
  *      size = 3
  *      hex_str becomes 'ff4100'
-*/
-void
-get_hex_str(char *dst, char *src, size_t size) {
+ */
+void get_hex_str(char *dst, char *src, size_t size)
+{
     unsigned int hex_str_idx = 0;
     size_t src_sz = size - 1;
 
@@ -162,12 +195,12 @@ get_ip_str(const struct sockaddr *sa, char *ip_str, size_t maxlen)
     {
     case AF_INET:
         inet_ntop(AF_INET, &(((struct sockaddr_in *)sa)->sin_addr),
-                ip_str, maxlen);
+                  ip_str, maxlen);
         break;
 
     case AF_INET6:
         inet_ntop(AF_INET6, &(((struct sockaddr_in6 *)sa)->sin6_addr),
-                ip_str, maxlen);
+                  ip_str, maxlen);
         break;
 
     case AF_UNIX:
@@ -459,16 +492,23 @@ make_fd_non_blocking(int fd)
 #define SH_SIZE 16
 /* This function runs before the hooked applications main().
  */
-__attribute__((constructor)) 
-void desock_init(void)
+__attribute__((constructor)) void desock_init(void)
 {
     printf("Running libdesock...\n");
     DEBUG_LOG("[%s:%d] Running libdesock...\n", __FUNCTION__, __LINE__);
-    
+
+    // sem semaphore used to controller number of accept() returns
     if (sem_init(&sem, 1, MAX_CONNS) == -1)
     {
         _error("desock::error: sem_init failed\n");
     }
+
+    // sem semaphore used to controller read() before a state transition condition met
+    if (sem_init(&sem_fsm, 0, 0) == -1)
+    {
+        _error("desock::error: sem_init failed\n");
+    }
+
     // Initialize global variables that are user configurable.
     init_variables();
 }
