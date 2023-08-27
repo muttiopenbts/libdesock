@@ -16,6 +16,15 @@
 #define MAX_STATE_ID 128
 #define MAX_STATES 6
 #define MAX_PROTO_BYTES 4096
+#define MAX_SEARCH_BYTES 5 // Number of elements in array containing pkt search bytes
+
+typedef struct proto_state_search_def
+{
+    /* Raw network bytes to help determine state. */
+    unsigned char bytes[MAX_PROTO_BYTES];
+    /* Number of actual used bytes. */
+    unsigned int sz;
+} state_search_def;
 
 typedef struct proto_state_def
 {
@@ -37,9 +46,7 @@ typedef struct proto_state_def
     bool search_bytes_seen;
 
     /* Raw network bytes to help determine state. */
-    char search_bytes[MAX_PROTO_BYTES];
-    /* Number of actual used bytes. */
-    unsigned int search_bytes_sz;
+    state_search_def search_bytes[MAX_SEARCH_BYTES];
 
     /* Raw network bytes to write/send to network daemon. */
     unsigned char resp_bytes[MAX_PROTO_BYTES];
@@ -51,7 +58,7 @@ extern state_def state_list[MAX_STATES];
 extern char desock_state[MAX_STATE_ID];
 extern bool fsm_completed;
 
-extern state_def *state_def_new();
+extern state_def *state_def_new(void);
 extern bool is_valid_state(char *state);
 extern void init_state_list(char *state);
 extern bool is_current_state(char *state);

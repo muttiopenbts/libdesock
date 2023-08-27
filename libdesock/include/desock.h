@@ -31,11 +31,13 @@ If conns >= MAX_CONNS accept() will block
 #define MAX_IPV4_LEN 15
 
 extern sem_t sem;
-extern sem_t sem_fsm;
+extern sem_t sem_fsm_r;
+extern sem_t sem_fsm_w;
 extern unsigned long desock_port_local;
 extern unsigned long desock_port_remote;
 extern char desock_localipv4[MAX_IPV4_LEN + 1];
 extern char desock_remoteipv4[MAX_IPV4_LEN + 1];
+extern pthread_mutex_t rw_lock;
 
 #ifdef DEBUG
 void _debug(char *, ...);

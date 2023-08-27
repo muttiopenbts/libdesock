@@ -10,6 +10,7 @@
 #include "fsm.h"
 #include <execinfo.h>
 #include <stdio.h>
+#include <pthread.h>
 
 static long internal_writev(const struct iovec *iov, int len)
 {
@@ -191,11 +192,13 @@ visible ssize_t writev(int fd, const struct iovec *iov, int iovcnt)
 
     if (VALID_FD(fd) && fd_table[fd].desock)
     {
+        pthread_mutex_lock(&rw_lock);
 #ifdef DEBUG
         posix_print_stack_trace();
 #endif
         result = internal_writev(iov, iovcnt);
         DEBUG_LOG("[%s:%d:%d] result: %d. Desocked\n", __FUNCTION__, __LINE__, gettid(), result);
+        pthread_mutex_unlock(&rw_lock);
     }
     else
     {

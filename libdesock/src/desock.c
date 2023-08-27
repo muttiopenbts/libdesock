@@ -19,6 +19,7 @@
 #include <fcntl.h>
 #include <sys/mman.h>
 #include <time.h>
+#include <pthread.h>
 
 // TODO: Populate values from env variables
 const struct sockaddr_in stub_sockaddr_in = {
@@ -64,10 +65,11 @@ sem_t sem;
 
 /* Semaphore to block calls to read from de-socketed file descriptors in multi-threaded
    applications.
-   Use to block/wait() on a read() from a fsm response that's dependent on a peer sending
+   Use to block/wait() on a read*(), write*() from a fsm response that's dependent on a peer sending
    some bytes that causes the fsm to transition to another state.
  */
-sem_t sem_fsm;
+sem_t sem_fsm_r;
+sem_t sem_fsm_w;
 
 /* Whitelist for ports that should only be desocketed.
  * Configured via environment variable DESOCK_PORT_LOCAL
@@ -88,6 +90,8 @@ char desock_localipv4[MAX_IPV4_LEN + 1];
  * e.g. "111.111.111.111\0"
  */
 char desock_remoteipv4[MAX_IPV4_LEN + 1];
+
+pthread_mutex_t rw_lock;
 
 /* msleep(): Sleep for the requested number of milliseconds.
  * Taken from https://stackoverflow.com/questions/1157209/is-there-an-alternative-sleep-function-in-c-to-milliseconds
@@ -504,9 +508,20 @@ __attribute__((constructor)) void desock_init(void)
     }
 
     // sem semaphore used to controller read() before a state transition condition met
-    if (sem_init(&sem_fsm, 0, 0) == -1)
+    if (sem_init(&sem_fsm_r, 0, 1) == -1)
     {
         _error("desock::error: sem_init failed\n");
+    }
+
+    // sem semaphore used to controller read() before a state transition condition met
+    if (sem_init(&sem_fsm_w, 0, 0) == -1)
+    {
+        _error("desock::error: sem_init failed\n");
+    }
+
+    if (pthread_mutex_init(&rw_lock, NULL) != 0)
+    {
+        _error("rw_lock init has failed\n");
     }
 
     // Initialize global variables that are user configurable.

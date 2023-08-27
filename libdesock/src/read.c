@@ -17,9 +17,10 @@
 #include <fcntl.h>
 #include <pthread.h>
 #include <signal.h>
+#include <pthread.h>
 
 // #define SLEEP_TIMER 110 // inconsistent results
-#define SLEEP_TIMER 120 // milliseconds
+#define SLEEP_TIMER 0 // milliseconds
 
 struct thread_data
 {
@@ -37,6 +38,8 @@ static ssize_t
 statefull_read(char *buf, size_t count)
 {
     DEBUG_LOG("[%s:%d] Start count: %d\n", __FUNCTION__, __LINE__, count);
+    ssize_t state_idx = get_current_state_idx();
+    DEBUG_LOG("[%s:%d:%d] state_idx: %d\n", __FUNCTION__, __LINE__, gettid(), state_idx);
 
     int offset = 0;
 
@@ -118,8 +121,9 @@ statefull_read(char *buf, size_t count)
     uint hex_str_sz = (offset * 2) + 1;
     char hex_str[hex_str_sz];
     get_hex_str(hex_str, buf, hex_str_sz);
+    state_idx = get_current_state_idx();
 
-    DEBUG_LOG("[%s:%d:%d] End offset: %d, buf: %s, errno: %d\n", __FUNCTION__, __LINE__, gettid(), offset, hex_str, errno);
+    DEBUG_LOG("[%s:%d:%d] End offset: %d, buf: %s, errno: %d, state_idx: %d\n", __FUNCTION__, __LINE__, gettid(), offset, hex_str, errno, state_idx);
 
     return offset;
 }
@@ -439,8 +443,10 @@ void *thread_internal_readv(void *threadarg)
     struct thread_data *my_data;
     my_data = (struct thread_data *)threadarg;
 
+    // pthread_mutex_lock(&rw_lock);
     my_data->result = (long *)internal_readv(my_data->iov, my_data->count, NULL, 0, 0);
     DEBUG_LOG("[%s:%d:%d] End my_data->result: %d\n", __FUNCTION__, __LINE__, gettid(), my_data->result);
+    // pthread_mutex_unlock(&rw_lock);
     pthread_exit(NULL);
 }
 
