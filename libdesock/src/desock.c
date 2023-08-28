@@ -132,10 +132,9 @@ void get_hex_str(char *dst, char *src, size_t size)
 
     for (int idx = 0; idx < (src_sz / 2); idx++)
     {
-        sprintf(&dst[hex_str_idx], "%02x", src[idx]);
+        snprintf(&dst[hex_str_idx], sizeof(&dst[hex_str_idx]), "%02x", src[idx]);
         hex_str_idx += 2;
     }
-    dst[size] = '\0';
 }
 
 /* Given an fd that is being desocketed fill the given sockaddress structure
@@ -208,11 +207,11 @@ get_ip_str(const struct sockaddr *sa, char *ip_str, size_t maxlen)
         break;
 
     case AF_UNIX:
-        strncpy(ip_str, "AF_UNIX", maxlen);
+        snprintf(ip_str, maxlen, "%s", "AF_UNIX");
         break;
 
     default:
-        strncpy(ip_str, "Unknown AF", maxlen);
+        snprintf(ip_str, maxlen, "%s", "Unknown AF");
     }
 
     return ip_str;
@@ -226,8 +225,7 @@ void set_desock_localipv4(void)
 
     if ((p_tmp = getenv("DESOCK_LOCALIPV4")) != NULL)
     {
-        strncpy(desock_localipv4, p_tmp, MAX_IPV4_LEN); // Save last element for null
-        desock_localipv4[MAX_IPV4_LEN] = '\0';
+        snprintf(desock_localipv4, sizeof(desock_localipv4), "%s", p_tmp);
         // Check if valid port range
         if (!(is_valid_ip_address(desock_localipv4)))
         {
@@ -252,8 +250,7 @@ void set_desock_state(void)
 
     if ((p_tmp = getenv("DESOCK_STATE")) != NULL)
     {
-        strncpy(desock_state, p_tmp, MAX_STATE_ID - 1); // Save last element for null
-        desock_state[MAX_STATE_ID - 1] = '\0';
+        snprintf(desock_state, sizeof(desock_state), "%s", p_tmp);
 
         /* Initilize statelist */
         init_state_list(desock_state);
@@ -278,10 +275,9 @@ void set_desock_remoteipv4(void)
 
     if ((p_tmp = getenv("DESOCK_REMOTEIPV4")) != NULL)
     {
-        strncpy(desock_remoteipv4, p_tmp, MAX_IPV4_LEN); // Save last element for null
-        desock_remoteipv4[MAX_IPV4_LEN] = '\0';
+        snprintf(desock_remoteipv4, sizeof(desock_remoteipv4), "%s", p_tmp);
         // Check if valid port range
-        if (!(is_valid_ip_address(desock_localipv4)))
+        if (!(is_valid_ip_address(desock_remoteipv4)))
         {
             fprintf(stderr, "DESOCK_REMOTEIPV4 bad format. %s.\n", p_tmp);
             fprintf(stderr, "Exiting.\n");
@@ -307,7 +303,7 @@ void set_desock_port_local(void)
 
     if ((p_tmp = getenv("DESOCK_PORT_LOCAL")) != NULL)
     {
-        strncpy(port, p_tmp, MAX_PORT_LEN - 1); // Save a copy for our use.
+        snprintf(port, sizeof(port), "%s", p_tmp);
         desock_port_local = strtoul(port, NULL, 10);
 
         // Check if valid port range
@@ -337,7 +333,7 @@ void set_desock_port_remote(void)
 
     if ((p_tmp = getenv("DESOCK_PORT_REMOTE")) != NULL)
     {
-        strncpy(port, p_tmp, MAX_PORT_LEN - 1); // Save a copy for our use.
+        snprintf(port, sizeof(port), "%s", p_tmp);
         desock_port_remote = strtoul(port, NULL, 10);
 
         // Check if valid port range
