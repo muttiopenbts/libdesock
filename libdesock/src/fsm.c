@@ -44,6 +44,10 @@ bool fsm_completed = false;
 state_def *state_def_new(void)
 {
     state_def *my_state = malloc(sizeof(state_def));
+    if (my_state == NULL)
+    {
+        fprintf(stderr, "Unable to allocate buffer\n");
+    }
     memset(my_state->id, '\0', sizeof(MAX_STATE_ID));
     my_state->is_current_state = false;
     my_state->is_processed = false;
@@ -54,6 +58,11 @@ state_def *state_def_new(void)
     for (int arr_size = 0; arr_size < MAX_SEARCH_BYTES; arr_size++)
     {
         state_search_def *state_search = malloc(sizeof(state_search_def));
+        if (state_search == NULL)
+        {
+            fprintf(stderr, "Unable to allocate buffer\n");
+        }
+
         memset(state_search, '\0', sizeof(state_search_def));
         my_state->search_bytes[arr_size] = *state_search;
     }
